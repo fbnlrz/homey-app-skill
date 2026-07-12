@@ -118,8 +118,12 @@ When the user asks to create a new Homey app, generate the full file set. At min
 - `/locales/en.json` for any translated strings
 - `README.txt`
 
-The app ID must be in reverse domain notation (e.g., `com.example.mydevice`). Never use "homey" or
-"athom" in the app ID.
+The app ID must be in reverse domain notation (e.g., `com.example.mydevice`). Don't use the **Homey
+or Athom name as the identity** of your id (you can't publish `com.athom.*` or otherwise pass your
+app off as theirs) — but this is *not* a literal substring ban: an id like `com.you.homeyfin` (a
+Jellyfin integration) is fine. **Choose the id carefully: it is effectively permanent** — after the
+first publish, changing the id creates a *new* App Store listing that loses all installs and reviews,
+so pick the final id before you ever publish.
 
 ### Minimal app.js
 

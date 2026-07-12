@@ -90,12 +90,20 @@ The `/.homeycompose/app.json` contains core app metadata. This gets merged into 
 ```
 
 ### Required fields:
-- `id` — Reverse domain notation (e.g. `com.company.product`). Cannot contain "homey" or "athom".
+- `id` — Reverse domain notation (e.g. `com.company.product`). You may not use the **Homey or Athom
+  name as the identity** of the id (don't impersonate them / claim `com.athom.*`), but this is not a
+  literal substring ban — `com.you.homeyfin` (a Jellyfin app) is valid. **The id is effectively
+  permanent:** after the first publish, changing it creates a brand-new App Store listing that loses
+  all existing installs and reviews, so settle on the final id *before* you first publish.
 - `version` — Semver (no pre-release suffixes like `-rc.1`)
 - `compatibility` — Semver range for Homey firmware (use `>=5.0.0` for SDK v3)
 - `sdk` — Must be `3`
-- `name` — Translation object
-- `description` — One-liner translation object
+- `name` — Translation object. **Max 4 words**; use the brand name; no company names, no protocol
+  names (Zigbee, Z-Wave, 433 MHz…), and no "Homey"/"Athom". See the App Store naming rules in
+  `references/publishing.md`.
+- `description` — Translation object holding a single **one-liner / catchy tagline**, not a
+  paragraph. Don't repeat the app name or reuse text from the README, and avoid generic phrasings
+  like "Adds support for X" or "Integrates X with Homey".
 - `category` — One of: `lights`, `video`, `music`, `appliances`, `security`, `climate`, `tools`, `internet`, `localization`, `energy`
 - `images` — Paths to `small` (250×175), `large` (500×350), optionally `xlarge` (1000×700)
 - `author` — Object with `name` (required) and `email` (optional)
