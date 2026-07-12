@@ -337,9 +337,10 @@ async getHistory({ homey, query }) {
 ✖ ... ENOENT: no such file or directory, open '.../widgets/my-widget/preview-light.png'
 ```
 
-Guidance:
-- Provide a light and a dark variant so the picker looks right in both themes.
-- Keep them simple — schematic shapes, no screenshots, no text. A Figma template is available from
-  the Homey docs.
-- Use square images (a 1024×1024 export is a safe choice); export before running
-  `homey app validate --level publish`.
+Guidance (App Store guideline 1.10):
+- **1024×1024 px**, **transparent background**, one light and one dark variant.
+- **Not a screenshot** and not over-detailed — reviewers reject literal rendered widgets, and reject
+  any **text** in the preview.
+- Use **simple shapes** (icon chips + neutral placeholder bars where values/labels would go) and the
+  **shadow style from the Homey Figma template**.
+- Both files must exist before `homey app validate --level publish` (missing → `ENOENT`).

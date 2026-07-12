@@ -310,6 +310,10 @@ Define in `/.homeycompose/capabilities/<id>.json`:
 - `uiComponent` — How it renders: `"sensor"`, `"slider"`, `"toggle"`, `"picker"`, `"button"`, `"thermostat"`, `"color"`, `"media"`, `null`
 - `insights` (boolean) — Log values to Homey Insights charts (write-only at runtime — see below)
 - `units` — Translation object for units display
+- `icon` — **Provide one.** `icon` is technically optional, but a custom capability without one has
+  been observed to show a **dashed placeholder box** in the device view. Point it at a
+  single-solid-path SVG (e.g. `"/assets/aqi.svg"`); like app/driver icons it is tinted monochrome, so
+  follow the same single-path rule (see `references/publishing.md`).
 
 ### ⚠️ Insights is WRITE-ONLY at runtime
 
