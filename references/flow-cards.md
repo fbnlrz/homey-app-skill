@@ -273,7 +273,25 @@ playArtist.registerArgumentAutocompleteListener('artist', async (query, args) =>
 }
 ```
 
-**date** / **time** — Date or time picker.
+**date** / **time** — Date (`dd-mm-yyyy`) or time (`HH:mm`) picker.
+
+**range** — Slider between `min`/`max`/`step`; extra props `label`, `labelMultiplier`, `labelDecimals`.
+
+**multiselect** — Multiple choices from `values` (`{ id, title }`); `conjunction` is `"and"` or `"or"`.
+
+**droptoken** — Accepts only Flow tokens/logic variables; sub-types `string`/`number`/`boolean`/`image`
+(used to receive an image: `await args.droptoken.getStream()` → `.meta.contentType`, `.meta.filename`).
+
+### Shared argument props:
+`name`, `type`, `title`, `placeholder`, and `required` (bool, default `true` — if `false` the value
+may be `undefined`). A `device` arg's `filter` uses querystring syntax:
+`"driver_id=mydriver&capabilities=onoff"`.
+
+### Card-level fields (any Flow card):
+`id`, `title` (required), `hint`, `titleFormatted`, `args`, `tokens`, `deprecated` (bool — hide from
+new Flows, keep existing working), `highlight` (bool — Highlighted Cards list), `advanced` (bool —
+Advanced Flow only; **auto-set true when the card has `tokens`**, which also hides it from the
+standard editor), and `$filter` for device cards (`class`, `capabilities`, with `|` = OR, `&` = AND).
 
 ### Title formatting:
 Use `titleFormatted` with `[[argName]]` placeholders to create readable Flow cards:
@@ -312,6 +330,19 @@ into text fields of condition and action cards.
 ```
 
 ### Token types: `string`, `number`, `boolean`, `image`
+
+### Global tokens (usable in any Flow, no trigger needed):
+```javascript
+const token = await this.homey.flow.createToken('my_token', { type: 'number', title: 'My Token' });
+await token.setValue(23.5);
+```
+Device capabilities are registered as global tokens automatically. Image tokens use
+`type: 'image'` and `token.setValue(myImage)` (see `references/advanced-features.md` → Images).
+
+### Advanced-Flow "Then"-card tokens:
+An **action** card can also output tokens: declare a `tokens` array on the card and `return` an
+object of those values from its run listener (`return { shamanName: 'Alumbrada', shamanCost: 10 }`).
+Such a card only appears in the **Advanced** Flow editor.
 
 ### Providing token values when triggering:
 ```javascript

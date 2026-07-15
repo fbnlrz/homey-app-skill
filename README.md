@@ -139,8 +139,13 @@ The skill activates automatically when you mention Homey-related topics. Try thi
 - **`references/widgets.md`** — Widget manifest, sizing, native CSS variables, frontend/API contract,
   dynamic pickers, previews
 - **`references/wireless-and-cloud.md`** — LAN discovery, OAuth2 cloud pairing, webhooks, Z-Wave,
-  Zigbee, BLE, RF, Matter
-- **`references/publishing.md`** — App Store guidelines, icons, images, localization, publishing lifecycle
+  Zigbee, RF/IR, BLE, Matter/Thread, firmware OTA, Homey Cloud restrictions
+- **`references/advanced-features.md`** — App Web API, realtime & app-to-app, images & image Flow
+  tokens, videos, LED ring, speech/geolocation/clock/NFC, manager quick-map
+- **`references/cli-and-migration.md`** — Homey CLI surface, validation levels, debugging,
+  TypeScript/Python runtimes, ESM, Node 22, breaking-changes & SDK v2→v3 migration
+- **`references/publishing.md`** — Complete App Store guidelines (1.1–3.4), icons, images,
+  localization, publishing lifecycle, pre-certification checklist
 
 ## Contributing
 

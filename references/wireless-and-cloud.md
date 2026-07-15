@@ -5,12 +5,14 @@
 2. [Discovery Strategies](#discovery-strategies)
 3. [OAuth2](#oauth2)
 4. [Webhooks](#webhooks)
-5. [Z-Wave](#z-wave)
-6. [Zigbee](#zigbee)
-7. [Bluetooth LE](#bluetooth-le)
-8. [433 MHz / 868 MHz](#433-868-mhz)
-9. [Infrared](#infrared)
-10. [Matter](#matter)
+5. [Homey Cloud restrictions](#homey-cloud-restrictions)
+6. [Z-Wave](#z-wave)
+7. [Zigbee](#zigbee)
+8. [Bluetooth LE](#bluetooth-le)
+9. [433 MHz / 868 MHz](#433-868-mhz)
+10. [Infrared](#infrared)
+11. [Matter](#matter)
+12. [Firmware updates (Z-Wave & Zigbee OTA)](#firmware-updates-z-wave--zigbee-ota)
 
 ---
 
@@ -64,6 +66,13 @@ by adding `"discovery": "<strategy_id>"` to the driver manifest.
 - `protocol` — `tcp` or `udp`
 - `id` — Template for the unique device identifier (use `{{txt.xxx}}` for TXT record fields)
 - `conditions` — Optional filters (arrays of AND rules, multiple arrays = OR)
+- A resulting `DiscoveryResult` exposes `txt` (TXT record values, keys lowercased), `address` (IP),
+  and `id`.
+
+**`conditions` semantics:** an array of one-or-more arrays of rule objects. All rules *within* an
+inner array must match (**AND**); multiple inner arrays are **OR**ed. Match `type` is `"string"`
+(exact, case-insensitive) or `"regex"` — in a regex the backslashes must be **double-escaped** in
+JSON. Fields can interpolate discovered values with `{{fieldName}}`.
 
 ### SSDP:
 ```json
@@ -75,6 +84,8 @@ by adding `"discovery": "<strategy_id>"` to the driver manifest.
   "id": "{{headers.usn}}"
 }
 ```
+The `DiscoveryResult` exposes `headers` (HTTP header values, keys lowercased), `address`, and `id`.
+Use `{{headers.*}}` in the `id` template.
 
 ### MAC Address (ARP):
 ```json
@@ -85,7 +96,15 @@ by adding `"discovery": "<strategy_id>"` to the driver manifest.
   }
 }
 ```
-MAC bytes are specified in decimal (JSON doesn't support hex).
+`mac.manufacturer` is an array of the first three MAC bytes (the OUI) in **decimal** (JSON has no hex).
+The MAC becomes the device ID automatically; the `DiscoveryResult` exposes `address`.
+
+### Standalone discovery (outside a driver):
+```javascript
+const strategy = this.homey.discovery.getStrategy('<strategy_id>');
+const results = strategy.getDiscoveryResults();   // map of id → DiscoveryResult
+strategy.on('result', (result) => { /* new result */ });
+```
 
 ### Using discovery in the Driver:
 ```javascript
@@ -409,22 +428,57 @@ const webhook = await this.homey.cloud.createWebhook(
 );
 
 webhook.on('message', (message) => {
+  // message.headers, message.query, message.body
   this.log('Webhook received:', message.body);
 });
 ```
 
-Register webhook IDs at https://tools.developer.homey.app/. The webhook URL format is:
-`https://webhooks.athom.com/webhook/<WEBHOOK_ID>?homey=<HOMEY_ID>&...`
+Register a webhook ID + secret at `https://tools.developer.homey.app/webhooks`, store them in
+`/env.json` (`WEBHOOK_ID`, `WEBHOOK_SECRET`). Athom forwards matching webhooks to your Homey. Two
+routing options (a third, "Cloud Function", is legacy/read-only):
+
+- **Query parameter (dynamic):** get the Homey's id and build a URL the provider posts to:
+  ```javascript
+  const homeyId = await this.homey.cloud.getHomeyId();
+  const url = `https://webhooks.athom.com/webhook/${Homey.env.WEBHOOK_ID}?homey=${homeyId}`;
+  ```
+  With a `homey` query param the `data` argument to `createWebhook()` isn't needed.
+- **Key path (static URL):** pass `data` containing `$key` or `$keys` (e.g. `{ $keys: ['aaa','bbb'] }`);
+  the key path is an ECMAScript-style expression over `body`/`headers`/`query`
+  (`headers['X-Device-Id']`), case-sensitive. All Homeys with matching data receive the message.
+
+---
+
+## Homey Cloud restrictions
+
+Targeting `"platforms": ["cloud"]` (or `["local","cloud"]`) requires a Verified Developer
+subscription and imposes a stricter runtime. Validate with `homey app validate --level verified`.
+
+- **SDK v3 only.** Add `"platforms"` to App, Driver, **and** Flow manifests; drivers also set
+  `connectivity`.
+- **`connectivity` values:** `lan` and `rf868` are **not** possible on Homey Bridge; supported:
+  `cloud` (OAuth/Webhooks), `ble`, `zwave`, `zigbee`, `infrared`, `rf433`. Matter and LAN discovery
+  (mDNS/SSDP/MAC) are local/Pro-only.
+- **Multi-tenancy:** many app instances share one Node.js process — **no global mutable variables**;
+  keep state on `this.` (App/Driver/Device instances).
+- **Cleanup:** implement `onUninit()` on App/Driver/Device and use `this.homey.setTimeout`/
+  `setInterval` so timers auto-clear. **Unhandled promise rejections crash the app** — always
+  `.catch(this.error)`.
+- **Unsupported on Cloud:** the App Web API (`api.js` REST; webhooks still work), app-to-app comms
+  (`homey:app:<appId>`), `homey:manager:api` (so "Tools"-category apps are generally rejected),
+  custom App Settings views, and `ManagerCloud#getLocalAddress()`.
 
 ---
 
 ## Z-Wave
 
-Use the `homey-zwavedriver` library:
+Use `homey-zwavedriver` (SDK v3; the SDK v2 predecessor was `homey-meshdriver`):
 
 ```bash
 npm install homey-zwavedriver
 ```
+
+Base classes: `ZwaveDevice`, `ZwaveLightDevice`.
 
 ```javascript
 const { ZwaveDevice } = require('homey-zwavedriver');
@@ -438,18 +492,44 @@ class MyZwaveDevice extends ZwaveDevice {
 }
 ```
 
-Z-Wave devices pair automatically through Homey's built-in Z-Wave inclusion process.
-The driver manifest should specify `"connectivity": ["zwave"]`.
+Command classes are structured Command Class → Command in three categories: **set** / **report** /
+**get** (e.g. `COMMAND_CLASS_BASIC` → `BASIC_SET`, `BASIC_GET`, `BASIC_REPORT`). The exhaustive
+`registerCapability` option matrix (`get`, `set`, `report`, `getParser`, `setParser`,
+`reportParser`, `getOpts.getOnStart`, `pollInterval`, …) lives in the apidoc `ZwaveDevice.html`.
+
+### driver.compose.json `zwave` object:
+- `manufacturerId` (number), `productTypeId` (array), `productId` (array).
+- `learnmode` / `unlearnmode` — each `{ image, instruction }`.
+- `requireSecure` (boolean) — opt into S0/S2 security.
+- `defaultConfiguration` — array of `{ id, size, value }`.
+- `associationGroups` (array of group numbers) + `associationGroupsOptions`;
+  `associationGroupsMultiChannel` for pre-v13.2.0 compatibility.
+- `wakeUpInterval` — seconds, range **30–16777215**.
+- `multiChannelNodes` — endpoint defs (`name`, `class`, `capabilities`, `icon`, `settings`).
+
+### Config-parameter settings (`driver.settings.compose.json` `zwave` object):
+- `index` (parameter number), `size` (1/2/4 bytes), `signed` (**defaults to signed/true**).
+
+### Security & associations:
+- **S2** (modern): Homey grants all requested keys. **S0** (legacy) needs `"requireSecure": true`.
+  Homey Pro 2016–2019 grants only the *highest* requested key.
+- Homey is auto-added to **group 1 (Lifeline)**; multi-channel associations are automatic from v13.2.0+.
+
+Manifest: `"connectivity": ["zwave"]`. Devices pair through Homey's built-in inclusion. Firmware OTA
+is possible via `driver.firmware.compose.json` (see the firmware note below).
 
 ---
 
 ## Zigbee
 
-Use the `homey-zigbeedriver` library:
+Use `homey-zigbeedriver` with its `zigbee-clusters` peer dependency (the ZCL implementation):
 
 ```bash
-npm install homey-zigbeedriver
+npm install --save homey-zigbeedriver zigbee-clusters
 ```
+
+Base classes: `ZigBeeDevice`, `ZigBeeLightDevice` (lights), `ZigBeeDriver`. `zigbee-clusters` exports
+`ZCLNode`, `CLUSTER`, `BoundCluster`.
 
 ```javascript
 const { ZigBeeDevice } = require('homey-zigbeedriver');
@@ -460,7 +540,8 @@ class MyZigbeeDevice extends ZigBeeDevice {
     this.registerCapability('onoff', CLUSTER.ON_OFF);
     this.registerCapability('dim', CLUSTER.LEVEL_CONTROL);
 
-    zclNode.endpoints[1].clusters[CLUSTER.ON_OFF.NAME]
+    // Attribute reporting listener
+    zclNode.endpoints[1].clusters.onOff
       .on('attr.onOff', (value) => {
         this.setCapabilityValue('onoff', value).catch(this.error);
       });
@@ -468,53 +549,128 @@ class MyZigbeeDevice extends ZigBeeDevice {
 }
 ```
 
-Driver manifest: `"connectivity": ["zigbee"]`.
+- **Lifecycle:** `onNodeInit({ zclNode })` (primary) or low-level `onInit()`; `isFirstInit()` detects
+  the first init after pairing. **Do NOT initiate communication with the node during
+  `onInit`/`onNodeInit`.** Always `.catch()` promises in `onNodeInit`.
+- `registerCapability(capability, CLUSTER.NAME, opts)` maps capability → cluster;
+  `configureAttributeReporting([{ endpointId, cluster, attributeName, minInterval, maxInterval, minChange }])`.
+- Send a command: `zclNode.endpoints[1].clusters.onOff.toggle()`; read:
+  `.readAttributes(['onOff'])`. Receive incoming commands by binding a `BoundCluster` subclass:
+  `zclNode.endpoints[1].bind(CLUSTER.NAME, boundClusterInstance)`.
+- Debug: `const { debug } = require('zigbee-clusters'); debug(true);`.
+
+### driver.compose.json `zigbee` object:
+- `manufacturerName` (required), `productId` (required; **array** for multiple variants).
+- `endpoints` — per endpoint: `clusters` (implemented as client — send/read) and `bindings`
+  (implemented as server — receive).
+- `learnmode` — `{ image, instruction }`.
+- `devices` — optional **sub-device** definitions (needs Homey v5.0.0+ and `homey-zigbeedriver@1.6.0+`);
+  read `this.getData().subDeviceId` and split logic with `Driver#onMapDeviceClass()`.
+
+**Gotchas:** IAS Zone (cluster `1280`) auto-enrolls from Homey v13.1.2+ (zone id `0`;
+`onZoneEnrollRequest` no longer forwarded). Group-broadcast listening differs by model (Pro 2016–2019
+& Bridge listen to all groups; Pro 2023+/mini only to group `0` and Touchlink groups). Manifest:
+`"connectivity": ["zigbee"]`.
 
 ---
 
 ## Bluetooth LE
 
-For BLE devices, use the Homey BLE manager:
+Permission `homey:wireless:ble`. Advertisement subscriptions require the `ble-advertisements` feature
+— check `this.homey.hasFeature('ble-advertisements')` (supported on Homey Pro Early-2023, Pro mini,
+Pro 2026, and Self-Hosted Server). GATT hierarchy:
+**Advertisement → Peripheral → Service → Characteristic → Descriptor**.
 
 ```javascript
 class MyDevice extends Homey.Device {
   async onInit() {
     const advertisement = await this.homey.ble.find(this.getData().uuid);
     const peripheral = await advertisement.connect();
-    const services = await peripheral.discoverServices();
-    // Read/write characteristics
+    await peripheral.discoverServices();
+    const value = await peripheral.read(SERVICE_UUID, CHAR_UUID);
+    // ...then peripheral.disconnect() when done
   }
 }
 ```
 
-BLE is available on Homey Pro only. Driver manifest: `"connectivity": ["ble"]`.
+- **ManagerBLE** (`this.homey.ble`): `discover()` / `discover(serviceUuids)`, `find(uuid)`,
+  `subscribeToAdvertisements(uuid, options, cb)` / `unsubscribeFromAdvertisements(uuid)`.
+- **BlePeripheral**: `read(svc, char)`, `write(svc, char, data)`, `discoverServices()`,
+  `getService(uuid)`, `disconnect()`. **BleCharacteristic**: `read()`, `write(data)`,
+  `subscribeToNotifications(cb)` / `unsubscribeFromNotifications()`.
+- Advertisement props: `uuid`, `rssi`, `connectable`, `state`, `address`, `addressType` (always
+  present); `localName`, `serviceUuids`, `serviceData` (optional).
+- **Gotchas:** subscribe to advertisements for near-realtime data without opening a GATT connection;
+  since Homey 6.0 peripherals no longer auto-disconnect after 60 s, and BLE notifications are
+  available; handle-based read/write and Included Services are **not** supported; some devices reject
+  multiple connections — don't hold connections needlessly. BLE is Homey Pro only. Manifest:
+  `"connectivity": ["ble"]`.
 
 ---
 
 ## 433 MHz / 868 MHz {#433-868-mhz}
 
-Use the `homey-rfdriver` library for radio frequency devices:
+Use `homey-rfdriver` (`npm install homey-rfdriver`). Base classes: `RFSignal`, `RFDriver`,
+`RFDevice`. Statics: Signal `static FREQUENCY = '433' | '868' | 'ir'`, Driver `static SIGNAL`,
+Device `static CAPABILITIES`.
 
-```bash
-npm install homey-rfdriver
-```
-
-Signal definitions go in `/.homeycompose/signals/433/<id>.json` or `868/<id>.json`.
-Requires `homey:wireless:433` or `homey:wireless:868` permission.
+- **Permissions:** `homey:wireless:433`; `homey:wireless:868` (**Homey Pro 2019 or earlier only**).
+- **Signal definitions:** `/.homeycompose/signals/<433|868>/<id>.json`. Fields (times in µs) include
+  `sof`, `eof`, `words` (data words), `interval` (5–32767, default **5000**), `sensitivity`
+  (0.0–0.5, default **0.3**), `repetitions` (1–255, default **10**), `minimalLength`/`maximalLength`,
+  `agc`, `manchesterUnit`, `prefixData`/`postfixData`, `cmds` (name → int array), `toggleSof`,
+  `toggleBits`, `packing` (default false), `txOnly` (default false), `carrier` (Hz), and a
+  `modulation` object (`type` `'ASK'|'FSK'|'GFSK'` default ASK, `channelSpacing`, `channelDeviation`,
+  `baudRate`).
+- **Radio defaults:** 433 MHz carrier 433890000 Hz; 868 MHz carrier 868300000 Hz (Pro 2016–2019 only).
+- **Runtime:** `this.homey.rf.getSignal433(id)` / `getSignal868` / `getSignalInfrared`; then
+  `signal.enableRX()` / `disableRX()`, `signal.tx(bits)`, `signal.cmd(name)`,
+  `signal.on('payload', cb)`.
+- **Limits:** ≤ 256 time-interval arrays per signal; total duration 5 µs – 1 s; filter bandwidth is a
+  shared resource and can't be changed.
 
 ---
 
 ## Infrared
 
-Use the `homey-rfdriver` library for IR devices as well.
-Signal definitions go in `/.homeycompose/signals/ir/<id>.json`.
-Requires `homey:wireless:ir` permission.
+Also `homey-rfdriver`, with Signal `static FREQUENCY = 'ir'`. Permission `homey:wireless:ir`.
+
+- **Signal definitions:** `/.homeycompose/signals/ir/<id>.json`. Fields as for RF, but `carrier`
+  defaults to **38000** (30000–45000) and `interval` is in **milliseconds**. Prontohex signals use
+  `"type": "prontohex"` with `cmds` mapping identifiers → Prontohex strings.
+- driver.compose.json IR block: `"infrared": { "satelliteMode": true }`.
+- Built-in pairing steps from the library: `"rf_ir_remote_learn"` and `"rf_ir_remote_add"`.
+- **Runtime:** `this.homey.rf.getSignalInfrared('id')`, then `.cmd('COMMAND_NAME')`.
 
 ---
 
 ## Matter
 
-Matter is supported since Homey Pro v10+. Homey acts as a Matter controller.
-Matter support is still evolving — check the latest docs for current status.
+Supported since Homey Pro (Early 2023) firmware **v11.1.0**, on Homey Pro (Early 2023/2026/mini) and
+Self-Hosted Server — **not on Homey Cloud** (local only). Homey Pro already controls Matter devices
+**without any app**; an app only *enhances* pairing (instructions, icons, naming).
 
-Driver manifest: `"connectivity": ["matter"]`.
+- driver.compose.json: `"platforms": ["local"]`, `"connectivity": ["matter"]`, plus a `matter`
+  object with `vendorId` and `productId` (number or array, **base-10, not hex**) and optional
+  `learnmode` (`{ instruction, image }`). For a **bridge**, use `"class": "bridge"` with empty
+  capabilities and add `deviceVendorId` / `deviceProductName` (from the Bridged Device Basic
+  Information cluster) while keeping the bridge's own `vendorId`/`productId`.
+- **Constraints:** you may **not** define custom `Driver`/`Device` classes for Matter; the manifest
+  `class`/`capabilities` are ignored (Homey determines them at pairing). Optionally add `"matter"` to
+  the app manifest's `platformLocalRequiredFeatures`.
+- **Thread:** there is no separate Thread SDK. Matter runs over Wi-Fi/Ethernet/**Thread**, and Homey
+  Pro / Pro mini act as a **Thread Border Router automatically** (no manual config) — you interact
+  with Thread devices only through the Matter driver manifest above.
+
+---
+
+## Firmware updates (Z-Wave & Zigbee OTA)
+
+Both support serving OTA firmware from the app via `/drivers/<driver_id>/driver.firmware.compose.json`
+(requires Homey firmware **v13.2.0+**, Mobile App v9.10.0+; CLI `homey app driver firmware`, homey
+CLI v4.3.0+, auto-fills `size`/`name`/`integrity`). Firmware binaries live in
+`/drivers/<driver_id>/assets/firmware/`. Homey selects a file matching the device identifier whose
+version is **higher** than the device's current version; integrity is a `<hash>:<hex>` string (SHA-2/
+SHA-3/BLAKE2 families). Z-Wave entries add `version`/`applicableTo` (semver) and a `region`
+(`EU`, `US`, …); Zigbee entries use numeric `fileVersion`/`imageType`/`manufacturerCode`. Add a
+`wakeInstruction` for sleepy (battery) devices.
