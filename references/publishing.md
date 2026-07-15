@@ -2,13 +2,16 @@
 
 ## Table of Contents
 1. [Pre-submission Checklist](#pre-submission-checklist)
-2. [App Store Guidelines Summary](#guidelines)
-3. [Icons & Images](#icons-and-images)
-4. [README](#readme)
-5. [Flow Card Guidelines](#flow-guidelines)
-6. [Publishing Process](#publishing-process)
-7. [Updating Your App](#updating)
-8. [Verified Developer](#verified-developer)
+2. [Before you submit for certification](#before-you-submit-for-certification-what-validate-does-not-catch)
+3. [App Store Guidelines (complete)](#guidelines)
+4. [Icons & Images](#icons-and-images)
+5. [README](#readme)
+6. [Localization completeness](#localization-completeness)
+7. [Third-party service integrations](#third-party)
+8. [Flow Card Guidelines](#flow-guidelines)
+9. [Publishing Process](#publishing-process)
+10. [Updating Your App](#updating)
+11. [Verified Developer](#verified-developer)
 
 ---
 
@@ -51,34 +54,113 @@ most of these, so verify them explicitly before submitting:
 - [ ] **Widget previews**: 1024×1024, transparent, no screenshots, no text, simple shapes
 - [ ] **Custom capabilities have an `icon`** (else they show a dashed placeholder box)
 - [ ] **Translations are complete per language** — if any Flow card is translated, all are (+ settings/capabilities)
+- [ ] **No typos / spelling errors** in any language (spelling errors = rejection, guideline 1.11)
+- [ ] **App images** are rich product imagery, not a flat icon/logo/clipart or a bare app screenshot (1.4.2)
+- [ ] **App works standalone** and adds value by itself; not fully dependent on another app (1.12)
+- [ ] **App is free** — no paywall for any functionality (2.3)
+- [ ] **Not a duplicate** — checked the store for an existing app for this brand/concept (2.1)
 - [ ] **Third-party integration**: own icon (not the vendor logo), consider an "unofficial" note
 
 ---
 
-## App Store Guidelines Summary {#guidelines}
+## App Store Guidelines (complete) {#guidelines}
 
-### Naming (guideline 1.1):
-- **Max 4 words** — names longer than four words are rejected. ("Google Health Sync" ✅ passes;
-  "Health Sync for Google Health" ✗ is five words.)
-- Use the **brand name**; **company names are not allowed**.
-- Don't include **protocol names** (Zigbee, Z-Wave, 433 MHz, Infrared…).
-- Don't use the **Homey or Athom** trademark in the name.
-- The name is the brand, not a feature description. (The app `id` follows the same
-  don't-impersonate-Homey/Athom rule but is *not* a substring ban — see
-  `references/app-and-manifest.md`.)
+The full guideline set from <https://apps.developer.homey.app/app-store/guidelines>, organized as
+Athom numbers them. `homey app validate` checks almost none of these — they are enforced during
+manual certification. Deeper how-to for icons, README, localization, and Flow cards follows in the
+sections below.
 
-### App description (one-liner):
-- A single **catchy tagline**, not a paragraph.
-- Don't repeat the app name or reuse README text; avoid "Adds support for X" / "Integrates X with Homey".
+### 1. Design
 
-### Category:
-Must be one of: `lights`, `video`, `music`, `appliances`, `security`, `climate`, `tools`, `internet`, `localization`, `energy`
+**1.1 App name** — Max **4 words**; longer names are rejected. Use the **brand name** (match it
+exactly when supporting a specific brand); **company names are not allowed**. No **protocol names**
+(Zigbee, Z-Wave, 433 MHz, Infrared…). Never use the **Homey/Athom** trademark. It is the brand, not a
+feature description. (The app `id` follows the same don't-impersonate rule but is not a substring ban
+— see `references/app-and-manifest.md`.)
 
-### Brand color:
-- Must be set via `brandColor` in the manifest
-- Used as backdrop for icons in Flows, device picker, and App Store
-- Must not be too bright
-- Icons must be visible against this color
+**1.2 Description** — Required. An **engaging one-liner** that highlights the purpose — *not* an
+extensive text. Don't use the app name in it or repeat README text. Avoid "Adds support for…" /
+"Integrates … with Homey".
+
+**1.3 Readme** — One to two paragraphs, tops. Don't list features/capabilities/Flow cards. Plain
+text (no Markdown), **no URLs**, no changelog in the readme. (Detail in the [README](#readme) section.)
+
+**1.4 Images**
+- **1.4.1 Format & resolutions** — `.jpg` or `.png` only. **Small and Large are mandatory**, XLarge
+  optional. App images: Small **250×175**, Large **500×350**, XLarge **1000×700**. Driver images:
+  Small **75×75**, Large **500×500**, XLarge **1000×1000**.
+- **1.4.2 App images** — Must be real, rich imagery. **A single flat shape/icon on a plain,
+  monochrome, or transparent background is NOT approved.** Avoid logos, clipart, icon-type images,
+  and images that only show an Android/iOS app UI.
+- **1.4.3 Driver images** — A **white background** and a recognizable picture of the supported
+  device. **Don't reuse the app image or app icon as a driver image.**
+
+**1.5 App icon** (`/assets/icon.svg`) — Recognizable at small sizes, **transparent background**, full
+**960×960** canvas. **No images, filled illustrations, gradients, or background colours.** If the app
+supports a specific brand, use that company's brand icon. Must be clearly visible against `brandColor`.
+(Design detail + observed rendering behaviour in [Icons & Images](#icons-and-images).)
+
+**1.6 Driver icons** — Full **960×960** canvas, **transparent background**, lines/shapes only (no
+images/fills/gradients/background colours). Where possible use an **angle from the right** rather than
+a front view. **Do not reuse the app icon.** Each driver's icon must be unique and clearly represent
+its device.
+
+**1.7 Brand color** — `brandColor` is **mandatory** in the manifest. Both app and driver icons must
+be clearly visible against it (so it must not be too bright/light).
+
+**1.8 URLs** — `source`, `homepage`, `support`, `bugs.url` etc. in the manifest render as clickable
+links on the app's store page (URLs belong here, never in the README).
+
+**1.9 Flow** — **1.9.1 Titles:** short and clear; no device names; no "When/And/Then"; **no
+parentheses**. **1.9.2 Formatted titles:** use `titleFormatted` to place arguments and keep it
+readable. **1.9.3 Hint:** add a `hint` when the card's function isn't obvious. (Detail in
+[Flow Card Guidelines](#flow-guidelines).)
+
+**1.10 Widget previews** — Light **and** dark version, **1024×1024**, **transparent background**. No
+text; simple shapes; not too many colours; **don't** use the same colour as the widget-picker
+background; not a screenshot/over-detailed. (Detail in `references/widgets.md`.)
+
+**1.11 Language & translations** — English is required. **No typos / spelling / grammar errors — the
+app is rejected if spelling errors are found.** Consistency is vital; avoid sporadic/partial
+translations. (Completeness detail in [Localization completeness](#localization-completeness).)
+
+**1.12 Dependencies** — An app's core functionality must **work standalone**. You may **not** make one
+app fully dependent on another app, and you may not publish an app that **adds no value by itself**.
+
+**1.13 Account** — A developer account name may not contain emojis, special characters, or
+inappropriate language. Verified Developer accounts should display the company name.
+
+### 2. Legal
+
+**2.1 Duplicate** — **2.1.1 App:** ideally one app per brand/concept; check the App Store first and
+prefer collaborating with an existing app's developer; if you still submit, explain why collaboration
+wasn't possible. **2.1.2 Code:** don't copy other developers' code without consent; if you base work
+on someone else's source, ask permission and **credit the original in the app manifest**.
+
+**2.2 Explicit content** — Apps with adult/explicit content (e.g. pornography) are not allowed.
+
+**2.3 Compensation** — Apps must be **free of charge**; you may not charge for partial or full
+functionality. Connecting to a service that has its own premium tier is fine as long as payment
+happens outside the Homey app.
+
+### 3. After app submission
+
+**3.1 Review duration** — Certification can take **up to ~2 weeks**; faster when all requirements are
+met on submission.
+
+**3.2 Testing** — Test thoroughly before submitting: device controls, advanced-settings updates, Flow
+creation/execution, and manual state changes made outside the Homey app. Check pairing instructions,
+error messages, Flow-card clarity, setting labels/hints, and translations. Verified Developers need
+sample devices. Test builds are reachable at `https://homey.app/en-us/app/<APP.ID>/test/`.
+
+**3.3 Feedback** — Review findings are shared with you and are expected to be implemented.
+
+**3.4 Removal** — Apps may be hidden/removed if they stop being compatible, stop functioning, or are
+unmaintained. Apps with **no update for 2+ years** may be treated as abandoned.
+
+### Category (manifest)
+`category` must be one of: `lights`, `video`, `music`, `appliances`, `security`, `climate`, `tools`,
+`internet`, `localization`, `energy`.
 
 ---
 
@@ -114,11 +196,13 @@ Good (renders): one `<path>` with an evenodd cutout —
 </svg>
 ```
 
-### App images (PNG):
-- `small.png` — 250×175 px
-- `large.png` — 500×350 px
+### App images (PNG/JPG) — guideline 1.4.2:
+- `small.png` — 250×175 px (**mandatory**)
+- `large.png` — 500×350 px (**mandatory**)
 - `xlarge.png` — 1000×700 px (optional but recommended)
-- Clean marketing images showing the product.
+- Rich marketing imagery of the product. **A single flat shape/icon on a plain, monochrome, or
+  transparent background is rejected** — no logos, no clipart, no icon-style images, and not just a
+  screenshot of an Android/iOS app UI.
 
 ### Driver icons & images (guideline 1.5/1.6) — must NOT reuse the app's:
 - **Do not reuse the app icon for a driver**, and **do not use the app image as a driver image** —
@@ -158,6 +242,8 @@ Translate **per scope, completely** — a half-translated app is a certification
   token, and argument — plus device settings and custom capabilities, into that language. Don't leave
   half the cards English.
 - Always ship at least `en` (the fallback). NL + DE are worth adding for store-quality apps.
+- **No typos or spelling/grammar errors** in any language — guideline 1.11 states the app is
+  **rejected if spelling errors are found**. Proofread every string.
 
 Practically: decide your language set up front and apply it across `locales/*.json`, all
 `*.compose.json` translation objects, `README.<lang>.txt`, and `.homeychangelog.json`.
@@ -193,6 +279,10 @@ conventions, not official requirements.)
 ### Conditions:
 - Use the invertible pattern: `!{{is|isn't}}` for boolean conditions
 - Example: `"It !{{is|isn't}} raining"`
+
+### Hints (guideline 1.9.3):
+- Add a `hint` translation object when a card's function isn't self-evident, e.g.
+  `"hint": { "en": "Triggers only when the value crosses the threshold upward." }`
 
 ### Good examples:
 - Trigger: "A button was pressed"
