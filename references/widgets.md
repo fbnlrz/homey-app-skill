@@ -22,8 +22,9 @@ Each widget is a folder under `/widgets/<widget_id>/` containing an HTML fronten
 an optional API layer, and preview images. The **folder name is the widget id** — you never declare
 `id` inside `widget.compose.json`.
 
-Widget development requires Docker (the widget frontend is served from a container during
-`homey app run`, which shows a refresh button for live-reloading the HTML).
+Widgets require app `compatibility >=12.3.0`, run only on **Homey 2023+ models**, and **do not work
+on Homey Cloud**. Development requires Docker (the widget frontend is served from a container during
+`homey app run`, which shows a refresh button for live-reloading the HTML; no refresh with `--remote`).
 
 ---
 
@@ -132,7 +133,20 @@ Key groups (use the exact names):
 - **Font weight:** `--homey-font-weight-{bold,medium,regular}`
 - **Border radius:** `--homey-border-radius-small`, `--homey-border-radius-default`
 - **Icons:** `--homey-icon-color-{dark,light,white,blue,green,orange,red}`,
-  `--homey-icon-size-{medium,regular,small}`
+  `--homey-icon-size-{medium,regular,small}` (20/16/14 px)
+- **Grayscale ramp:** `--homey-color-mono-000` (white in light) … `--homey-color-mono-1000` (black).
+  Chromatic ramps `--homey-color-{blue,green,red}` span 050–900; `--homey-color-orange` is 500 only.
+
+Exact values worth knowing: spacing `--homey-su` = 4 px (`-1`…`-8` = 4–32 px, **never for
+width/height**); font sizes xxlarge/xlarge/large/default/small = 32/24/20/17/14 px; font weights
+bold/medium/regular = 700/500/400.
+
+Helper classes (Homey Style Library): padding `.homey-widget` (16 px) / `.homey-widget-small` (8 px) /
+`.homey-widget-full` (0); text `.homey-text-bold`/`-medium`/`-regular`/`-small`/`-small-light`; align
+`.homey-text-align-{left,center,right}`; `.homey-border{,-top,-right,-bottom,-left}`; `.homey-table`
+(+ `.homey-table-striped`); `.homey-dark-mode` (force dark); `.homey-custom-icon-*` (SVG via
+`mask-image`). The frame's border-radius/shadow/width are **not** customizable — only height and
+background.
 
 ---
 
@@ -197,6 +211,8 @@ stays stuck on the loading state.
 - `Homey.api(method, path, body?)` — Call a widget API endpoint (routes to `api.js`)
 - `Homey.on(event, callback)` — Listen for events emitted by the app
 - `Homey.__(key, tokens?)` — Translate a string
+- `Homey.setHeight(height | null)` — Change widget height at runtime
+- `Homey.popup(url)` — Open a popup
 - `Homey.hapticFeedback()` — Trigger haptic feedback (only within a touch-event window)
 
 > **Injected `<script>` does not execute.** Setting `element.innerHTML = '<script>…</script>'`
@@ -256,14 +272,14 @@ Settings are declared in `widget.compose.json` under `settings`. Types: `text`, 
   "id": "devices",
   "type": "devices",
   "title": { "en": "Devices" },
-  "min": 1,
-  "max": 5,
-  "scope": "driver",
+  "singular": false,
   "filter": { "class": "light|socket", "capabilities": "onoff" }
 }
 ```
-- `scope` — `"driver"` (only this app's devices) or `"global"` (all Homey devices; needs `homey:manager:api`)
-- Read the chosen IDs with `Homey.getDeviceIds()` in the frontend.
+- `singular` — `true` to allow only one device.
+- `type` — `"app"` (only this app's devices) or `"global"` (all Homey devices; needs `homey:manager:api`).
+- `filter.class` is pipe-separated (OR); `filter.capabilities` uses `|` for OR and `,` for AND.
+- Read the chosen IDs with `Homey.getDeviceIds()` in the frontend (supports drag-and-drop reorder).
 
 ---
 

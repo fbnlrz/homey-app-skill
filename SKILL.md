@@ -101,9 +101,11 @@ When creating a Homey app, follow this workflow:
    - `references/app-and-manifest.md` — App class, manifest, settings, environment, i18n, permissions
    - `references/drivers-and-devices.md` — Driver/Device classes, pairing, capabilities, settings, discovery
    - `references/flow-cards.md` — Triggers, conditions, actions, arguments, tokens, device Flow cards
-   - `references/widgets.md` — Dashboard widgets, widget settings, widget API
-   - `references/wireless-and-cloud.md` — Wi-Fi/LAN discovery, OAuth2, webhooks, Z-Wave, Zigbee, BLE
-   - `references/publishing.md` — App Store guidelines, icons, images, publishing flow
+   - `references/widgets.md` — Dashboard widgets, sizing, native CSS variables, frontend/API, previews
+   - `references/wireless-and-cloud.md` — Wi-Fi/LAN discovery, OAuth2, webhooks, Z-Wave, Zigbee, RF/IR, BLE, Matter/Thread, firmware OTA, Homey Cloud
+   - `references/advanced-features.md` — Web API (api.js), realtime, images & image tokens, videos, LED ring, speech/geolocation/clock/NFC, manager map
+   - `references/cli-and-migration.md` — Homey CLI, validation levels, debugging, TypeScript/Python, ESM, Node 22, breaking-changes/migration
+   - `references/publishing.md` — Complete App Store guidelines (1.1–3.4), icons/images, localization, publishing lifecycle, certification checklist
 3. **Scaffold the project** following the Homey Compose structure above
 4. **Write the code** using SDK v3 patterns (async/await, `this.homey.*` managers)
 5. **Validate** with `homey app validate --level=publish`

@@ -355,10 +355,76 @@ Button capabilities can be maintenance actions (shown in device settings):
 }
 ```
 
+### Boolean/number/enum-specific capability fields:
+- Boolean: `uiQuickAction` (bool), `insightsTitleTrue` / `insightsTitleFalse` (translation objects).
+- Number: `units` (translation object; `"°C"` also enables automatic °C→°F conversion), `min`, `max`,
+  `step`, `decimals`.
+- Enum: `values` — array of `{ id, title }`.
+
+### `uiComponent` values:
+`toggle` (single boolean), `slider` (single number), `sensor` (multiple num/enum/string/bool),
+`thermostat` (`target_temperature` + optional `measure_temperature`), `media` (speaker + album art),
+`color` (light hue/sat/temp/mode), `battery` (`measure_battery`/`alarm_battery`), `picker` (single
+enum, labels ≤3 words), `ternary` (three-value enum, e.g. up/idle/down), `button` (one+ booleans;
+stateful if getable+setable), or `null` (hide the component).
+
+### `capabilitiesOptions` (in `driver.compose.json`):
+Override a capability per-driver. Common keys:
+- `title` (override; keep to 2–3 words), `units`, `decimals`, `min`, `max`, `step`,
+  `values` (enum, v12.0.1+).
+- `preventInsights` (bool — disable auto Insights logging), `preventTag` (bool — disable the auto Flow
+  Tag/token).
+- `duration` (bool — passes a duration as the listener's 2nd arg).
+- `zoneActivity` (bool — whether `alarm_*` changes trigger Homey zone activity).
+- `setOnDim` (bool — on a light, send only `dim` without an `onoff` update from Flow).
+- `titleTrue` / `titleFalse`, `insightsTitleTrue` / `insightsTitleFalse` (boolean caps).
+- `maintenanceAction` (bool) + `desc` (translation object) for button maintenance actions.
+- Energy: `approximated` (bool, for `measure_power`), `excludeMin`/`excludeMax` (for `target_power`,
+  must satisfy `excludeMin <= 0 <= excludeMax`).
+- `getable: false` → a stateless `onoff`/`volume_mute` (removes its Flow cards and quick action).
+
 ### Sub-capabilities:
-Use a capability more than once with a sub-ID: `"measure_temperature.indoor"`, `"measure_temperature.outdoor"`
+Use a capability more than once with a sub-ID: `"measure_temperature.indoor"`,
+`"measure_temperature.outdoor"`. **Flow cards are NOT auto-generated for sub-capabilities** — declare
+them yourself in `driver.flow.compose.json` if needed.
 
 ---
+
+## Energy
+
+The `energy` object (in `driver.compose.json`, or dynamically via `Device#setEnergy()`/`getEnergy()`)
+tells Homey how a device consumes/produces power so it appears in Energy.
+
+```json
+{
+  "energy": {
+    "approximation": { "usageOn": 5, "usageOff": 0.5, "usageConstant": 0.2 },
+    "batteries": ["AA", "AA"]
+  }
+}
+```
+
+- **`approximation`** — `{ usageOn, usageOff, usageConstant }` in Watts, for devices without a
+  `measure_power` capability.
+- **`batteries`** — required array for **every battery device** (except home batteries/EVs). Allowed
+  values: `LS14250`, `C`, `AA`, `AAA`, `AAAA`, `A23`, `A27`, `PP3`, `CR123A`, `CR2`, `CR1632`,
+  `CR2032`, `CR2430`, `CR2450`, `CR2477`, `CR3032`, `CR14250`, `INTERNAL`, `OTHER`.
+- **`cumulative`** (bool) — device measures total home/group power (P1 meter, clamp); pair with
+  `cumulativeImportedCapability`/`cumulativeExportedCapability` and
+  `meterPowerImportedCapability`/`meterPowerExportedCapability` (kWh).
+- **`homeBattery`** (v12.3.0+), **`electricCar`** / **`evCharger`** (v12.4.5+) — mark special types.
+
+### Required capabilities by energy type:
+- Instantaneous power → `measure_power` (W). Cumulative energy → `meter_power` / `meter_power.*`
+  (kWh, **must only increase** — a reset loses data).
+- Battery level → `measure_battery` (0–100%); low-battery alert → `alarm_battery`.
+- Solar panel → class `solarpanel`, `measure_power` (positive = generation) + `meter_power` with
+  `meterPowerExportedCapability`.
+- Home battery → class `battery` + `homeBattery: true`, `measure_power` + `measure_battery`.
+- EV charger → class `evcharger` + `evCharger: true`, `measure_power` + `evcharger_charging` +
+  `evcharger_charging_state`.
+- `target_power` (W; positive = consume/charge, negative = produce/discharge), optional
+  `target_power_mode` (`homey`, `device`, or custom).
 
 ## Device Settings
 
@@ -398,15 +464,19 @@ Define in `/drivers/<driver_id>/driver.settings.compose.json`:
 ```
 
 ### Setting types:
-- `text` — Single line text
+- `text` — Single line text (optional `pattern` regex)
 - `password` — Masked text
 - `textarea` — Multi-line text
-- `number` — Numeric with min/max/units
+- `number` — Numeric with `min`/`max`/`step`/`units`
 - `checkbox` — Boolean
-- `dropdown` — Select from predefined values
+- `dropdown` — Select from `values` (`{ id, label }`)
 - `radio` — Radio buttons
-- `label` — Read-only text (informational)
+- `label` — Read-only text (app-updatable only)
 - `group` — Group container with `children`
+
+> **Reserved setting-ID prefixes — do not use:** `homey:`, `zw_`, `zb_`, `mtr_`, `thread_`, `zone_`,
+> `energy_`, `satellite_mode_`, `homekit_`. Add `"highlight": true` to surface a setting during
+> pairing. `setSettings()` writes settings **without** firing `onSettings()`.
 
 ### Highlighted settings:
 Add `"highlight": true` to show a setting prominently during pairing.
@@ -437,14 +507,33 @@ Throwing an error in `onSettings()` will revert the settings change and show the
 
 ## Pairing
 
-### System pairing templates:
-- `list_devices` — Show discovered devices to select
-- `add_devices` — Confirm and add selected devices
-- `login_oauth2` — OAuth2 login flow
-- `login_credentials` — Username/password login
-- `pincode` — PIN code entry
-- `loading` — Loading screen
-- `done` — Completion screen
+Each `pair` entry has `id`, `template` (a system template or a custom `.html` view in
+`/drivers/<id>/pair/`), and `navigation` (`{ next, prev }`). **Custom pairing is not possible for
+Zigbee/Z-Wave devices.** A returned device object supports: `name` (required), `data` (required,
+unique — MAC not IP), `store`, `settings`, `icon`, `capabilities`, `capabilitiesOptions`.
+
+### System pairing templates (with per-view options/handlers):
+- `list_devices` — Show discovered devices. Handler `list_devices` (or `onPairListDevices()`); option
+  `singular` (bool, default false); can stream partial results via `session.emit('list_devices', […])`.
+- `add_devices` — Automatically adds the selected devices (terminal after selection).
+- `login_oauth2` — OAuth2 login (options `title`/`subtitle`/`hint`/`button`; see the OAuth2 pattern
+  in `references/wireless-and-cloud.md`).
+- `login_credentials` — Handler `login` receives `{ username, password }`, returns boolean or throws.
+  Options: `title`, `logo`, `usernameLabel` (default "E-mail address"), `usernamePlaceholder`,
+  `passwordLabel`, `passwordPlaceholder`.
+- `pincode` — Handler `pincode` receives the code as a **string array** (`["1","2","3","4"]`), returns
+  boolean. Options: `type` (`number`|`text`, default number), `length` (default 4), `title`, `hint`.
+- `loading` — In a `showView` handler, check `if (view === 'loading')`, do async work, then
+  `await session.nextView()`.
+- `done` — Terminal completion screen.
+
+### Custom pairing-view frontend API (`Homey.*` in a `/drivers/<id>/pair/*.html`):
+`Homey.emit(event, data)` (→ `session.setHandler`), `Homey.on(event, cb)`, `setTitle`/`setSubtitle`,
+`showView`/`nextView`/`prevView`/`getCurrentView`, `createDevice(device)` (device needs `data`+`name`),
+`getZone()`, `getOptions([viewId])`, `setNavigationClose()`, `done()`, `alert`/`confirm`/`popup`,
+`__()` (+ `data-i18n`), `showLoadingOverlay()`/`hideLoadingOverlay()`,
+`getViewStoreValue`/`setViewStoreValue`. Back-end `session.*`: `showView`, `nextView`, `prevView`,
+`done`, `setHandler`, `emit`. (`Homey.createDevice()` is unavailable during **repair**.)
 
 ### Simple pairing (list + add):
 ```json
@@ -586,3 +675,25 @@ class MyDevice extends Homey.Device {
 
 Link a discovery strategy to a driver by adding `"discovery": "my_discovery_strategy_id"`
 to the driver manifest.
+
+---
+
+## Device Best Practices
+
+### Batteries:
+- Use `measure_battery` for a precise level (0–100%) **or** `alarm_battery` for a low-battery alarm —
+  **never both** (they create duplicate UI + Flow cards).
+- Every battery device must declare `energy.batteries` (e.g. `"batteries": ["AAA","AAA"]`).
+
+### Lights:
+- Prefer class `light` (use `socket` only for non-light plugs). Couple `onoff` + `dim` and debounce
+  with `registerMultipleCapabilityListener()`: `dim` 0→nonzero must set `onoff=true`, nonzero→0 must
+  set `onoff=false`; `onoff` is leading in conflicts; use the `setOnDim` option to send only `dim`.
+- Group `light_hue`/`light_saturation`/`light_temperature`/`light_mode` with `onoff`/`dim` to prevent
+  flicker; **colour/temperature changes must not turn the device on**. `light_mode` enum is
+  `"color"` / `"temperature"`. Reflect external (Zigbee/Z-Wave) state changes back into the UI.
+
+### Window coverings:
+- Use class `curtains`/`blinds`/`sunshade` where they apply; `windowcoverings` otherwise.
+- Type 1 (up/down/stop) → `windowcoverings_state`; Type 2 (precise) → `windowcoverings_set`;
+  Type 3 (hybrid) → both. Add `windowcoverings_tilt_up`/`_tilt_down`/`_tilt_set` for tilt.

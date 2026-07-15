@@ -111,15 +111,26 @@ The `/.homeycompose/app.json` contains core app metadata. This gets merged into 
 ### Optional fields:
 - `platforms` — Array of `"local"` and/or `"cloud"` (defaults to `["local"]`). **Target `["local"]`
   (Homey Pro) unless you have an Athom-approved developer account** — see the warning below.
-- `brandColor` — HEX color string (not too bright)
+- `runtime` — `"nodejs"` (default) or `"python"`. Python also requires `pythonVersion` (`"3.14"`) and
+  `pythonDependencies` (managed via `homey app dependencies …`).
+- `brandColor` — HEX color string (mandatory for the store; not too bright)
 - `tags` — Translation object of arrays for App Store search
 - `permissions` — Array of permission strings
-- `contributing.donate` — Object with `paypal` field (shows Donate button for non-verified devs)
+- `platformLocalRequiredFeatures` — Array of `"nfc"`, `"ledring"`, `"speaker"`, `"matter"`; makes the
+  app uninstallable on Homey Pro models lacking a listed feature.
+- `contributors` — `{ developers: [...], translators: [...] }`, each entry needs a `name` (the
+  correct place to credit people — not the README).
+- `contributing.donate` — `{ paypal | bunq | patreon | githubSponsors: { username } }` (shows a
+  Donate button for non-verified devs).
 - `bugs.url` — URL to bug tracker
 - `source` — URL to source code (must start with `https://`)
 - `homepage` — URL to homepage
-- `support` — URL or `mailto:` for support
+- `support` — URL or `mailto:` — **mandatory for Verified Developers**
 - `homeyCommunityTopicId` — Number (topic ID from community forum URL)
+
+> The generated `/app.json` must **exist** for `homey app validate`/`run`/`build` (the CLI generates
+> it from `.homeycompose/` + `*.compose.json`); never hand-edit it. Pre-release versions like
+> `1.0.0-rc.1` are rejected.
 
 > **⚠️ Default to `"platforms": ["local"]`.** Publishing a **Homey Cloud** app requires an
 > Athom-approved (Verified/"Official") developer account — that subscription is intended for
@@ -150,7 +161,25 @@ this.homey.settings.on('set', (key) => {
 ```
 
 To create a user-facing settings page, add `/settings/index.html`. This is an HTML page that
-communicates with the Homey API. Most apps shouldn't need app-level settings — prefer device settings instead.
+communicates with the Homey API. Most apps shouldn't need app-level settings — prefer device settings
+instead. **Custom app settings views are not allowed on Homey Cloud.**
+
+Include the Homey bridge and define `onHomeyReady` (the view stays hidden until you call `Homey.ready()`):
+```html
+<head><script src="/homey.js" data-origin="settings"></script></head>
+<script>
+  function onHomeyReady(Homey) {
+    Homey.get('username', (err, val) => { /* … */ });
+    Homey.ready();
+  }
+</script>
+```
+Settings-page `Homey.*` API (callback-style; promises also supported): `ready()`,
+`get([name,] cb)` / `set(name, value, cb)` / `unset(name, cb)`, `on(event, cb)` (system events
+`settings.set` / `settings.unset`), `api(method, path, body, cb)` (calls the app Web API under
+`/api/app/<id>`), `alert(msg, cb)`, `confirm(msg, cb)`, `popup(url[, {width,height}])`,
+`openURL(url)`, and `__(key[, tokens])` (+ `data-i18n` attributes). A Homey Style Library
+(`.homey-form-*`, `.homey-button-*`, …) is available for native-looking pages.
 
 ### ⚠️ Settings pages are sandboxed — delivering a file to the user
 
@@ -201,15 +230,21 @@ Three traps to avoid:
 
 ## Persistent Storage
 
-Apps can use persistent storage that survives reboots via `this.homey.settings` (for simple key-value data)
-or the device store (for per-device data).
+There are three persistence tiers:
+- **App settings** — `this.homey.settings` (ManagerSettings): JSON-serializable key/values, survive
+  reboots, deleted only on uninstall.
+- **Device store** — per-device back-end values:
+  ```javascript
+  const value = this.getStoreValue('myKey');
+  await this.setStoreValue('myKey', 'newValue');
+  ```
+  (Device *settings* are the user-visible front-end equivalent.)
+- **App userdata** — `/userdata/` (Homey Pro, writable) for binary/non-JSON files.
 
-For device-level persistence, use the device store:
-```javascript
-// In device.js
-const value = this.getStoreValue('myKey');
-await this.setStoreValue('myKey', 'newValue');
-```
+> **⚠️ `/userdata/` is publicly served** at `https://<homey>/app/<app.id>/userdata/`. Use
+> **unguessable UUID filenames** (e.g. `a656d380-…​.jpg`, not `image1.jpg`) and store the mapping in
+> App Settings. Note also: paths differ (`/` is the sandboxed app dir on Pro, the Linux root on
+> Cloud) — always `require('./…')` or `path.join(__dirname, …)`, never absolute paths.
 
 ---
 
@@ -233,7 +268,13 @@ const err = this.homey.__('errors.not_found');
 ```
 
 ### Supported language codes:
-`en`, `nl`, `de`, `fr`, `it`, `sv`, `no`, `es`, `da`, `ru`, `pl`, `ko`, `ja`, `zh-cn`, `zh-tw`
+`en`, `nl`, `de`, `fr`, `it`, `sv`, `no`, `es`, `da`, `ru`, `pl`, `ko`, `ar`
+
+Variable substitution in translation strings uses **double underscores**: `"Hello, __name__"`
+with `this.homey.__('greeting', { name: 'Bob' })`. IDs support dot notation (`settings.title`). Apps
+work in **Celsius internally** — Homey auto-converts to °F; a custom number capability needs
+`"units": "°C"` for that conversion. Arabic (`ar`) is RTL — built-in views handle it; custom views use
+CSS `:dir(rtl)`. Auto-translate with `homey app translate` (OpenAI).
 
 English (`en`) is always required and is the fallback for every other language. Athom (Homey's
 maker) is Dutch and Dutch has a large user base, so **`en` + `nl` (+ `de`)** is a sensible default
@@ -279,14 +320,19 @@ Permissions are declared in the manifest `permissions` array:
 
 | Permission | Description |
 |---|---|
-| `homey:manager:api` | Use ManagerApi and the Homey Web API (Pro only) |
-| `homey:manager:speech-output` | Use text-to-speech |
-| `homey:manager:speech-input` | Listen for voice commands |
-| `homey:manager:ledring` | Control the LED ring (Homey Pro 2016-2019) |
-| `homey:manager:geolocation` | Access Homey's location |
-| `homey:wireless:433` | Transmit/receive 433MHz signals |
-| `homey:wireless:868` | Transmit/receive 868MHz signals |
+| `homey:manager:api` | ManagerApi / Homey Web API — controls **all** devices & Flows. Tools-type apps only (HomeyScript, Device Groups…); rejected if used by a branded device app; **not allowed on Homey Cloud** |
+| `homey:manager:speech-output` | Text-to-speech (ManagerSpeechOutput) |
+| `homey:manager:ledring` | Control the LED ring (Homey Pro 2016–2019) |
+| `homey:manager:geolocation` | Access Homey's location (ManagerGeolocation) |
+| `homey:wireless:433` | Transmit/receive 433 MHz signals |
+| `homey:wireless:868` | Transmit/receive 868 MHz signals (Pro 2019 or earlier) |
 | `homey:wireless:ir` | Transmit/receive infrared signals |
+| `homey:wireless:ble` | Bluetooth LE (ManagerBLE) |
+| `homey:wireless:nfc` | Scanned NFC tags (ManagerNFC) |
+| `homey:app:<appId>` | App-to-app communication (Pro only; e.g. `homey:app:com.athom.example`) |
+
+> A missing permission makes the manager's methods **throw**. New permissions added in an update do
+> **not** auto-apply to existing installs.
 
 ---
 
