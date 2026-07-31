@@ -737,15 +737,24 @@ Add `/drivers/<driver_id>/driver.compose.json` with at least the following, plus
 
 `matter` object fields:
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `vendorId` | `number` \| `number[]` | Yes | The vendor id the Matter device uses. Array to support multiple devices with a single driver. |
-| `productId` | `number` \| `number[]` | Yes | The product id the Matter device uses. Array to support multiple devices with a single driver. |
-| `deviceVendorId` | `number` \| `number[]` | Bridged devices only | The `VendorID` attribute reported by the bridged Matter device. If no `VendorID` attribute is present, use the `VendorID` property of the `Basic Information` cluster of the root endpoint. |
-| `deviceProductName` | `string` \| `string[]` | Bridged devices only | The `ProductName` attribute reported by the bridged Matter device. |
-| `learnmode` | object | Optional | Pairing instructions. |
-| `learnmode.instruction` | translation object | — | Tells the user how to enable pairing mode on the device. |
-| `learnmode.image` | path string | Optional | An image (or animated SVG) showing how to enable pairing mode. |
+These five keys — `vendorId`, `productId`, `deviceVendorId`, `deviceProductName`, `learnmode` — are the **complete** set defined by the `matterDevice` definition in the validator schema. There is nothing else; any other key inside `matter` is not read by Homey.
+
+| Field | Type | Required | Constraints (from the validator schema) | Description |
+| --- | --- | --- | --- | --- |
+| `vendorId` | `number` \| `number[]` | **Yes** | integer, `1` – `65520` (`0x0001`–`0xFFF0`) | The vendor id the Matter device uses. Array to support multiple devices with a single driver. |
+| `productId` | `number` \| `number[]` | **Yes** | integer, `1` – `65535` (`0x0001`–`0xFFFF`) | The product id the Matter device uses. Array to support multiple devices with a single driver. |
+| `deviceVendorId` | `number` \| `number[]` | No (bridged devices only) | integer, `1` – `65520` | The `VendorID` attribute reported by the bridged Matter device. If no `VendorID` attribute is present, use the `VendorID` property of the `Basic Information` cluster of the root endpoint. |
+| `deviceProductName` | `string` \| `string[]` | No (bridged devices only) | 1 – 32 characters | The `ProductName` attribute reported by the bridged Matter device. |
+| `learnmode` | object | No | — | Pairing instructions. |
+| `learnmode.instruction` | translation object (`{ "en": "…" }`, `en` required) | **Yes, when `learnmode` is present** | — | Tells the user how to enable pairing mode on the device. |
+| `learnmode.image` | path string | No | — | An image (or animated SVG) showing how to enable pairing mode. |
+
+Schema notes worth knowing before `homey app validate` tells you:
+
+- `deviceVendorId` and `deviceProductName` are **not** required by the schema even for bridged-device drivers — the "bridged devices only" rule is a documentation convention, not something the validator enforces. Omitting them on a bridged driver validates fine and then simply never matches a device.
+- `learnmode` is optional, but if you include it, `instruction` is **required** inside it. A `learnmode` containing only `image` fails validation.
+- All four id fields accept either a single number or an array of numbers; the range applies to each array element.
+- The driver object itself requires `id`, `name`, `class` and `capabilities`, so a Matter driver must still carry `class` and `capabilities` (`[]` is a valid value) even though Homey ignores them at runtime.
 
 Icons follow the normal driver icon mechanism (see `references/drivers-and-devices.md`).
 
@@ -772,6 +781,8 @@ Icons follow the normal driver icon mechanism (see `references/drivers-and-devic
 ### 4.3 Finding vendorId / productId
 
 Add the device to Homey, then check the device's **advanced settings**. The advanced settings show vendor and product id in **hexadecimal** (e.g. `0x1234`), but `driver.compose.json` accepts only **base-10** numbers (e.g. `4660`).
+
+The validator caps `vendorId` (and `deviceVendorId`) at **65520** = `0xFFF0`, while `productId` goes up to **65535** = `0xFFFF`. That ceiling is deliberate: the Matter specification reserves `0xFFF1`–`0xFFF4` as *test* vendor ids, so a device still running a development/test vendor id (65521–65524) cannot be shipped in a Homey app — `homey app validate` rejects it. `0` is rejected too; the minimum for every id field is `1`.
 
 ### 4.4 Matter bridges
 
@@ -830,7 +841,9 @@ Three related mechanisms, do not confuse them:
 
 | Mechanism | Where | Type | Purpose |
 | --- | --- | --- | --- |
-| `platformLocalRequiredFeatures` | app manifest (`/.homeycompose/app.json`) | `string[]` | Makes the app **uninstallable** on Homey Pros lacking any listed feature. Allowed values: `nfc`, `ledring`, `speaker`, `matter`. |
+| `platformLocalRequiredFeatures` | app manifest (`/.homeycompose/app.json`) | `string[]` | Makes the app **uninstallable** on Homey Pros lacking any listed feature. Allowed values per the validator schema: `nfc`, `speaker`, `ledring`, `matter`, `camera-streaming`. |
+
+> **Schema vs. prose:** the prose documentation lists only `nfc`, `ledring`, `speaker` and `matter` for `platformLocalRequiredFeatures`. The app-manifest schema used by `homey app validate` also accepts **`camera-streaming`**. The schema wins — `camera-streaming` validates. `ble-advertisements` is *not* in the enum and will fail validation.
 | `Homey#platformFeatures` | runtime, `this.homey.platformFeatures` | `string[]` | The features supported by the Homey that is running this app. |
 | `Homey#hasFeature(feature)` | runtime, `this.homey.hasFeature('…')` | `boolean` | Check whether the Homey supports a specific feature. **Available since Homey v12.7.1.** Documented values: `speaker`, `ledring`, `nfc`, `camera-streaming`, `matter`. The BLE guide additionally documents `ble-advertisements`. |
 
@@ -889,6 +902,10 @@ Homey periodically checks the **Matter Distributed Compliance Ledger** (DCL) at 
 - **Gotcha:** you **cannot** provide a custom `Driver` or `Device` class for a Matter device. Homey Pro handles all capabilities and device updates. Shipping `driver.js`/`device.js` for a Matter driver is wrong.
 - **Gotcha:** `class` and `capabilities` in a Matter `driver.compose.json` are **only used for the Homey App Store listing**. At pairing Homey determines the real class and capabilities itself and ignores the manifest values. Do not debug "my capabilities aren't applied" — they never will be.
 - **Gotcha:** the advanced settings show vendor/product ids in **hex** (`0x1234`); the manifest requires **base-10** (`4660`). Pasting the hex value silently produces a driver that never matches.
+- **Gotcha:** `vendorId`/`deviceVendorId` are capped at **65520** (`0xFFF0`) by the validator, so the Matter *test* vendor ids `0xFFF1`–`0xFFF4` (65521–65524) fail `homey app validate`. Prototype hardware still on a test vendor id cannot be shipped — get a real CSA vendor id first.
+- **Gotcha:** `deviceProductName` is limited to **32 characters** by the schema, matching the Matter `ProductName` attribute's own length limit. A longer string fails validation.
+- **Gotcha:** if you add a `learnmode` object, `instruction` is **required** inside it. `learnmode` with only an `image` fails validation — the error points at `learnmode`, not at the missing key.
+- **Gotcha:** `matter` has exactly five keys (`vendorId`, `productId`, `deviceVendorId`, `deviceProductName`, `learnmode`). There is no `endpoint`, no `clusters`, no `deviceType`, no `productId`-style filter beyond these — Matter drivers are matched on ids alone.
 - **Gotcha:** Matter is `platforms: ["local"]` only. It is not available on Homey Cloud, and `matter` is documented as only available on Homey Pro (Early 2023) in the connectivity table.
 - **Gotcha:** the Matter **bridge** driver is never added as a device — only the bridged devices appear. It exists solely to be selectable during pairing and to carry `learnmode`. Give it `"class": "bridge"` and `"capabilities": []`.
 - **Gotcha:** a bridged device whose `Bridged Device Basic Information` cluster lacks the optional `ProductName` attribute **cannot** get a Homey driver at all.
@@ -915,11 +932,11 @@ Homey periodically checks the **Matter Distributed Compliance Ledger** (DCL) at 
 | `speaker` | `this.homey.hasFeature('speaker')` | `Homey#hasFeature` |
 | `ledring` | `this.homey.hasFeature('ledring')` | `Homey#hasFeature` |
 | `nfc` | `this.homey.hasFeature('nfc')` | `Homey#hasFeature` |
-| `camera-streaming` | `this.homey.hasFeature('camera-streaming')` | `Homey#hasFeature` |
+| `camera-streaming` | `this.homey.hasFeature('camera-streaming')` | `Homey#hasFeature`; also valid in `platformLocalRequiredFeatures` (schema only — the prose docs omit it) |
 | `matter` | `this.homey.hasFeature('matter')` | `Homey#hasFeature`; also valid in `platformLocalRequiredFeatures` |
 | `ble-advertisements` | `this.homey.hasFeature('ble-advertisements')` | Bluetooth LE guide (not listed in the `hasFeature` apidoc enumeration, and **not** valid in `platformLocalRequiredFeatures`) |
 
-`platformLocalRequiredFeatures` accepts only `nfc`, `ledring`, `speaker`, `matter`.
+`platformLocalRequiredFeatures` accepts exactly `nfc`, `speaker`, `ledring`, `matter` and `camera-streaming` — that is the full enum in the app-manifest schema. Anything else, including `ble-advertisements`, fails `homey app validate`.
 
 ---
 

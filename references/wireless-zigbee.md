@@ -159,14 +159,24 @@ Required: `manufacturerName`, `productId`, `endpoints`.
 | `endpoints` | object, keys must match `^[0-9]+$` | Endpoint definition. **Only endpoints and clusters listed here become available on the `ZCLNode`.** Each endpoint object is `additionalProperties: false` — the *only* allowed keys are `clusters` and `bindings`, both optional. |
 | `endpoints.<id>.clusters` | number[] | Cluster ids implemented **as client** — clusters you send commands to / read attributes from on the remote node. |
 | `endpoints.<id>.bindings` | number[] | Cluster ids implemented **as server** — clusters you want to *receive* commands on. A bind request is made to the node during pairing for each entry. Required for attribute reporting on that cluster. |
-| `learnmode` | object | `instruction` is **required** (Translation Object); `image` is an optional path string. |
+| `learnmode` | object | `instruction` is **required** (Translation Object); `image` is an optional path string. These are the only two properties the schema declares, but the object is **not** sealed (`additionalProperties` unset), so stray keys pass silently. |
 | `devices` | object | Sub-device definitions (see §5.2). Documented but **not part of the `zigbeeDevice` schema** — it validates only because `zigbeeDevice` does not set `additionalProperties: false`. |
 
-Driver-level siblings you almost always set with it: `"connectivity": ["zigbee"]` and
-`"platforms"`. A Zigbee driver declares **no** app permission: the permissions guide's list of
-permissions an app may request contains no Zigbee entry (homey-lib does define an internal
-`homey:wireless:zigbee` permission, but it is not one an app declares — Homey grants Zigbee access
-per paired device on the basis of the driver's `zigbee` object).
+Those four (`manufacturerName`, `productId`, `endpoints`, `learnmode`) are the *complete* property
+list of the `zigbeeDevice` definition — there is nothing else to set inside the `zigbee` object.
+
+Driver-level siblings you almost always set with it: `"connectivity": ["zigbee"]` (schema enum:
+`lan`, `cloud`, `ble`, `zwave`, `zigbee`, `infrared`, `rf433`, `rf868`, `matter`) and
+`"platforms"` (schema enum: `cloud`, `local`).
+
+> **Discrepancy — the Zigbee permission.** In practice a Zigbee driver declares **no** app
+> permission: Homey grants Zigbee access per paired device on the basis of the driver's `zigbee`
+> object, and the published permissions guide lists no Zigbee entry. *However*, homey-lib's
+> authoritative permission list (`assets/app/permissions.json`, 13 entries) **does** contain
+> `homey:wireless:zigbee` — "Send and receive Zigbee for specific devices" — so it is a real
+> permission id, not an internal-only one. The manifest schema types `permissions` as a plain
+> `string[]`, so it neither requires nor rejects it. Keep omitting it unless Athom's review asks
+> otherwise, but do not be surprised to see it in a published app manifest.
 
 **Removed in SDK v3:** `deviceId` and `profileId` are no longer used to identify a Zigbee device —
 delete them. Only `manufacturerName` (v2 called it `manufacturerId`) and `productId` remain, plus
@@ -1220,7 +1230,16 @@ File: `/drivers/<driver_id>/driver.firmware.compose.json` (composed into the dri
 
 ### Top level
 
-All three schema objects below are `additionalProperties: false` — an unknown key fails validation.
+All **four** schema objects involved are `additionalProperties: false`, so an unknown key fails
+validation: `zigbee-firmware-updates` (top level), `zigbee-firmware-update` (`updates[]`),
+`zigbee-firmware-update-device` (`updates[].device`) and `zigbee-firmware-update-file`
+(`updates[].files[]`). Contrast `zigbeeDevice` in §5, which is *not* sealed.
+
+The driver-level key is `firmwareUpdates`, typed as
+`oneOf: [zigbee-firmware-updates, zwave-firmware-updates]`. Both branches are sealed and both
+require `updates`, so an object that mixes Zigbee tuning keys with Z-Wave ones (e.g.
+`maxImageBlockSize` next to `minWaitTime`) matches **neither** branch and fails with a confusing
+`oneOf` error rather than a pointed "unknown key" message.
 
 | Key | Required | Type | Description |
 | --- | --- | --- | --- |
@@ -1239,7 +1258,7 @@ All three schema objects below are `additionalProperties: false` — an unknown 
 | Key | Required | Type | Description |
 | --- | --- | --- | --- |
 | `changelog` | yes | Translation Object | Short description of the changes. |
-| `device` | yes | object | `{ manufacturerName, productId }` — both **required**, each a string or string[]. Lets one driver ship updates for only a subset of its supported devices. |
+| `device` | yes | object | `zigbee-firmware-update-device`: `{ manufacturerName, productId }` — both **required**, each `string \| string[]`, and the object is sealed (no other key allowed). Lets one driver ship updates for only a subset of its supported devices. |
 | `files` | yes | array (min 1) | Firmware files in this update. |
 
 ### `updates[].files[]`
@@ -1428,8 +1447,10 @@ Reference migrated app: <https://github.com/athombv/com.ikea.tradfri-example>.
 - **Do not add `light_temperature` to devices without `colorTemperature` support** — the legacy HSV
   fallback produces skewed colors.
 - **Override `handleFrame` when using the raw API** — the default implementation throws.
-- **A Zigbee driver declares no app permission** (the documented app-permission list has no Zigbee
-  entry), but it must declare `"connectivity": ["zigbee"]`.
+- **A Zigbee driver declares no app permission in practice**, but it must declare
+  `"connectivity": ["zigbee"]`. Mind the discrepancy in §5: homey-lib *does* ship a
+  `homey:wireless:zigbee` permission (1 of its 13) even though the published permissions guide omits
+  it, and the manifest schema types `permissions` as a plain `string[]` that validates either way.
 - **`registerCapability` resolves the endpoint for you** with `getClusterEndpoint(cluster)` unless
   you pass `endpoint: <number>`, and **throws `missing_cluster`** when the cluster is on no endpoint
   of the `ZCLNode` — which is what you get when the cluster id is missing from `zigbee.endpoints`.

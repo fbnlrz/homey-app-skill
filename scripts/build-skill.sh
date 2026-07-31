@@ -28,8 +28,11 @@ done < <(grep -oE 'references/[a-z0-9-]+\.md' "$ROOT/SKILL.md" | sed 's|referenc
 [ "$missing" -eq 0 ] || exit 1
 
 # Deterministic archive: sorted entries, fixed ownership, no gzip timestamp.
+# --no-recursion is required: the file list already names every entry, and without it tar
+# would also descend into each directory entry and add every file a second time.
 ( cd "$STAGE" && find homey-app -print0 | LC_ALL=C sort -z \
-    | tar --null --files-from=- --owner=0 --group=0 --numeric-owner --mtime='UTC 2020-01-01' -cf - ) \
+    | tar --owner=0 --group=0 --numeric-owner --mtime='UTC 2020-01-01' \
+          --null --no-recursion --files-from=- -cf - ) \
   | gzip -n -9 > "$OUT"
 
 echo "built $OUT"

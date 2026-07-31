@@ -19,7 +19,7 @@ Related: `references/app-and-manifest.md` (manifest, compatibility, permissions)
 
 The documented gate on widgets is the app's `compatibility`, **not** a hardware model — "Homey 2023 and later" is documented only for the live-reload refresh button. Set `"compatibility": ">=12.3.0"` and let that decide where the app installs.
 
-Field note (from `homey-lib`'s validator, not the docs): the presence of `widgets` is rejected below `>=12.1.0`, and the `deprecated` and `devices` keys are each rejected below `>=12.3.0`. `>=12.3.0` is the safe value for everything on this page.
+Field note (from `homey-lib`'s validator, not the docs): the presence of `widgets` is rejected below `>=12.1.0`, the `transparent` key is rejected below `>=12.1.0`, and the `deprecated` and `devices` keys are each rejected below `>=12.3.0`. `>=12.3.0` is the safe value for everything on this page.
 
 Widths are fixed by the dashboard column — a widget cannot set its own width. Only height and background are under your control (see [§4](#4-sizing-height-and-width) and [§8](#8-styling)).
 
@@ -50,7 +50,7 @@ Field notes on the wizard (from the CLI implementation):
 - The ID defaults to the name lowercased with spaces replaced by `-`, and only accepts letters, numbers, minus (`-`) and underscore (`_`). An existing `/widgets/<id>/` directory is rejected.
 - The scaffolded `widget.compose.json` starts with `"height": 188`, an empty `"settings": []` and the four `getSomething` / `addSomething` / `updateSomething` / `deleteSomething` routes.
 
-**`<widgetId>` is the folder name.** That same string is what you pass to `this.homey.dashboards.getWidget('<widgetId>')`. The documented `widget.compose.json` examples contain no `id` key — see the [Gotchas](#11-gotchas).
+**`<widgetId>` is the folder name.** That same string is what you pass to `this.homey.dashboards.getWidget('<widgetId>')`. The documented `widget.compose.json` examples contain no `id` key — Compose derives it from the folder name and writes it into `app.json`, where the schema requires it. See the [Gotchas](#11-gotchas).
 
 Everything under `public/` is hosted on the user's Homey, so put every asset referenced from `index.html` (SVG icons, CSS, JS) there.
 
@@ -108,15 +108,24 @@ Example showing every documented top-level key (the docs' own example shows only
 
 ### 3.1. Top-level keys
 
-| Key | Type | Description |
-| --- | --- | --- |
-| `name` | i18n object | Widget name. Becomes the default title above the widget on the dashboard. The user may rename it or hide the title entirely. |
-| `settings` | array | Settings the user can change while selecting or editing a widget instance. See [§7](#7-widget-settings). |
-| `height` | `number` \| percentage string | Initial height on load. A number is an absolute pixel value; a percentage is an aspect ratio (`"100%"` = square). See [§4](#4-sizing-height-and-width). |
-| `transparent` | `boolean` | Default `false` (opaque background using `--homey-background-color`). `true` makes the widget background fully transparent. |
-| `deprecated` | `boolean` | `true` prevents users from selecting the widget when adding new ones; existing instances remain functional. |
-| `devices` | object | Dedicated device-picker configuration (top-level, **not** a `settings` entry). See [§7.8](#78-devices-device-picker). |
-| `api` | object | Specification of the widget's API. **Scoped to the widget, not global.** See [§6](#6-apijs--the-widget-scoped-api). |
+| Key | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | i18n object | **yes** | Widget name. Becomes the default title above the widget on the dashboard. The user may rename it or hide the title entirely. |
+| `id` | `string` | **yes, in `app.json`** | The widget id. **Do not write it in `widget.compose.json`** — Homey Compose sets `widgets.<id>.id` to the widget's folder name while building `app.json`. Only a hand-written (non-Compose) `app.json` has to spell it out. |
+| `settings` | array | no | Settings the user can change while selecting or editing a widget instance. Compose defaults it to `[]` when the key is absent. See [§7](#7-widget-settings). |
+| `height` | `number` \| percentage string | no | Initial height on load. A number is an absolute pixel value; a percentage is an aspect ratio (`"100%"` = square). See [§4](#4-sizing-height-and-width). |
+| `transparent` | `boolean` | no | Default `false` (opaque background using `--homey-background-color`). `true` makes the widget background fully transparent. |
+| `deprecated` | `boolean` | no | `true` prevents users from selecting the widget when adding new ones; existing instances remain functional. |
+| `devices` | object | no | Dedicated device-picker configuration (top-level, **not** a `settings` entry). Its own `type` and `singular` are both required. See [§7.8](#78-devices-device-picker). |
+| `api` | object | no | Specification of the widget's API. **Scoped to the widget, not global.** See [§6](#6-apijs--the-widget-scoped-api). |
+
+That is the complete set of keys in the validator schema (`app.json` → `widgets.<widgetId>`); there are no others.
+
+Schema notes (the app manifest schema outranks the prose docs where they differ):
+
+- **`id` is required by the schema but absent from every documented `widget.compose.json` example.** Both statements are true because they describe different files: the schema validates the *built* `app.json`, and Compose injects `id` from the folder name. See the [Gotchas](#11-gotchas).
+- **`settings` is typed only as `array`** — the schema does not validate the individual setting entries at all. The six types in [§7](#7-widget-settings) come from the documentation, not from a schema constraint, so `homey app validate` passing is *not* evidence that a setting entry is well formed.
+- The per-widget object does **not** set `additionalProperties: false`, so an unrecognised key inside a widget survives validation silently. Do not read "it validates" as "it is supported".
 
 ### 3.2. `api` route options
 
@@ -131,7 +140,7 @@ Differences from the **app** Web API route options (`/.homeycompose/app.json` �
 
 - The app route `method` may also be an **array** of methods; the widget schema types `method` as a single string enum, so `"method": ["GET", "POST"]` is invalid in `widget.compose.json`. Declare one route per method.
 - The app route option `public: true` (unauthenticated access) is **not** part of the widget route schema — widget endpoints are always reached through the widget's own `Homey.api()`.
-- Both `method` and `path` are required on a widget route; there are no other documented options.
+- Both `method` and `path` are required on a widget route; the schema defines no other keys. It does not set `additionalProperties: false` on the route object either, so a stray `"public": true` is not *rejected* by `homey app validate` — it is simply ignored at runtime, which is the more dangerous failure mode.
 
 ---
 
@@ -1166,6 +1175,8 @@ The widget runs inside a webview in the mobile app, so use the Chrome inspector 
 Field-tested notes, plus documentation traps.
 
 **Gotcha: the widget id is the folder name.** `homey app widget create` asks for an ID and creates `/widgets/<widgetId>/`. The documented `widget.compose.json` examples contain **no `id` key** — the folder name is the id, and that is the exact string you pass to `this.homey.dashboards.getWidget('<widgetId>')`. A mismatch throws `NotFound` at app boot.
+
+*Schema discrepancy:* the app manifest schema lists `id` as **required** on every `widgets.<widgetId>` entry, which looks like it contradicts the id-less examples. It does not — Compose assigns `widgetJson.id = <folderName>` (and defaults `settings` to `[]`) while building `app.json`, so the requirement is satisfied by the build, not by your source file. Adding `"id"` to `widget.compose.json` yourself is redundant, and a value that disagrees with the folder name is overwritten. Only an app that hand-maintains `app.json` without Compose must write `id` explicitly — omitting it there fails validation.
 
 **Gotcha: `this.homey.dashboards` may not exist on older firmware.** Widgets require `compatibility >=12.3.0`. Wrap `getWidget(...)` / `registerSettingAutocompleteListener(...)` in `try/catch` so the app still boots on firmware without `ManagerDashboards`, and log with `this.error(...)`.
 

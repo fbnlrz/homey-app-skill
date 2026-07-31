@@ -83,20 +83,36 @@ Values are **decimal**, not hex. Z-Wave Alliance product data: <https://products
 | `productTypeId` | `number` \| `number[]` | yes | Product Type ID(s), decimal. Array to support several devices in one driver. |
 | `productId` | `number` \| `number[]` | yes | Product ID(s), decimal. Array to support several devices in one driver. |
 | `learnmode` | `object` | no | `{ instruction: <i18n>, image: <path> }`. `instruction` is required inside the object. Customises the built-in Z-Wave pair wizard. |
-| `unlearnmode` | `object` | no | Same shape as `learnmode`; customises the unpair (exclusion) wizard. |
-| `requireSecure` | `boolean` | no | Opt into **S0** (legacy) secure inclusion. See [Security](#security). |
+| `unlearnmode` † | `object` | no | Same shape as `learnmode`; customises the unpair (exclusion) wizard. Written by `homey app driver create`. |
+| `requireSecure` † | `boolean` | no | Opt into **S0** (legacy) secure inclusion. See [Security](#security). |
 | `defaultConfiguration` | `array` | no | `[{ id, size, value }]` — configuration parameters written after pairing. |
 | `associationGroups` | `number[]` | no | Association group numbers Homey adds itself to after pairing. |
 | `associationGroupsMultiChannel` | `number[]` | no | Legacy pre-v13.2.0 multi-channel association groups. Handled identically to `associationGroups` today. |
 | `associationGroupsOptions` | `object` | no | Keyed by group number **as a string**: `{ "3": { "hint": <i18n> } }`. (The app schema declares this as a flat `{ properties: { hint } }` object, which is a schema bug — the docs and shipped apps such as `com.danalock-example` use the group-number keying, and since the object is not `additionalProperties: false` both validate.) |
-| `wakeUpInterval` | `number` | no | Desired wake-up interval in **seconds**; allowed range **30 – 16777215** (30 s – 194 days). |
-| `multiChannelNodes` | `object` | no | Endpoint definitions, keyed by endpoint id. See [Multi channel nodes](#multi-channel-nodes). |
-| `productDocumentation` | `string` | no | URL to the manufacturer/Z-Wave Alliance product manual (used by `com.danalock-example`). |
-| `zwaveAllianceProductId` | `number` \| `string` | no | Z-Wave Alliance product id (the four-digit id in the `products.z-wavealliance.org` URL). Written by `homey app driver create`. |
-| `zwaveAllianceProductDocumentation` | `string` | no | URL of the Z-Wave Alliance product manual. Written by `homey app driver create`. |
+| `wakeUpInterval` | `number` | no | Desired wake-up interval in **seconds**; allowed range **30 – 16777215** (30 s – 194 days). The schema declares only `type: "number"` — the range is a runtime/documentation constraint, not something `homey app validate` checks. |
+| `multiChannelNodes` † | `object` | no | Endpoint definitions, keyed by endpoint id. See [Multi channel nodes](#multi-channel-nodes). |
+| `productDocumentation` † | `string` | no | URL to the manufacturer/Z-Wave Alliance product manual (used by `com.danalock-example`). |
+| `zwaveAllianceProductId` † | `number` \| `string` | no | Z-Wave Alliance product id (the four-digit id in the `products.z-wavealliance.org` URL). Written by `homey app driver create` (as the raw **string** the user typed, it is not parsed to a number). |
+| `zwaveAllianceProductDocumentation` † | `string` | no | URL of the Z-Wave Alliance product manual. Written by `homey app driver create`. |
+
+> **Schema discrepancy (†).** The `zwaveDevice` definition in the app schema declares exactly nine
+> properties: `manufacturerId`, `productTypeId`, `productId`, `learnmode`, `associationGroups`,
+> `associationGroupsMultiChannel`, `associationGroupsOptions`, `wakeUpInterval` and
+> `defaultConfiguration`. The rows marked † are **absent from the schema** even though the SDK
+> documentation describes them, the CLI writes them (`unlearnmode`, `zwaveAllianceProductId`,
+> `zwaveAllianceProductDocumentation`) and shipped Athom example apps use them (`requireSecure` and
+> `productDocumentation` in `com.danalock-example`, `multiChannelNodes` in `com.fibaro-example`).
+> They validate only because `zwaveDevice` is **not** `additionalProperties: false`. `multiChannelNodes`
+> is the odd one out: the schema *does* contain a `multiChannelNodes` sub-schema, but it is nested one
+> level too deep — inside `defaultConfiguration.items.properties` instead of at the `zwave` level — and
+> even there it is written as `{ "type": "object", "items": { … } }`, where `items` is meaningless for
+> an object, so endpoint objects are never validated at all.
 
 The `zwave` object is **not** `additionalProperties: false` in the app schema, so unknown keys validate; only
-the keys above are honoured by Homey and the CLI.
+the keys above are honoured by Homey and the CLI. This is also why legacy/typo keys survive in published
+apps — `com.fibaro-example` still ships `includeSecure`, `associationGroupOptions` (missing `s`) and
+`__comment`, and `com.danalock-example` ships `pid` and `imageRemotePath`. None of those do anything; do
+not copy them.
 
 > **Warning:** several of these properties (`learnmode`, `defaultConfiguration`, `associationGroups`,
 > `wakeUpInterval`, `multiChannelNodes`, `requireSecure`) configure behaviour **during pairing**. Changing them
@@ -279,6 +295,12 @@ List the endpoints you want surfaced as separate Homey devices in `multiChannelN
 
 Each listed endpoint appears as an extra device in the user's device overview after pairing.
 
+> **Schema discrepancy.** None of the above is enforced. The app schema's only `multiChannelNodes`
+> sub-schema sits inside `defaultConfiguration.items.properties` (see the note under the property table),
+> requires `class`, `capabilities` and `name`, and knows `icon` — but not `settings`. Because it is
+> misplaced *and* declared as an object with an `items` keyword, `homey app validate` checks nothing here.
+> Typos in an endpoint's `class` or `capabilities` therefore surface only at runtime.
+
 ## Device settings ↔ configuration parameters
 
 Map a device setting onto a Z-Wave configuration parameter by adding a `zwave` object to the setting in
@@ -306,6 +328,15 @@ Map a device setting onto a Z-Wave configuration parameter by adding a `zwave` o
 | `index` | `number` | yes | — | Z-Wave configuration **parameter number**. |
 | `size` | `1` \| `2` \| `4` | yes | — | Parameter length in bytes. |
 | `signed` | `boolean` | no | `true` | Whether the value is written as a signed integer. Set `false` for unsigned parameters. |
+
+Those three are the complete `zwaveSetting` definition; `index` and `size` are its `required` list and
+`size` is an `enum` of `1`, `2`, `4` (any other number is a schema error, not just a runtime problem).
+`zwaveSetting` is not `additionalProperties: false`, so extra keys slip through unvalidated and unused.
+
+The schema attaches `zwave` to **every** driver-setting type — `text` / `password` / `textarea` / `label`,
+`number` / `slider`, `radio` / `dropdown`, `checkbox` and `group` — not only to `number`. In practice use
+`number`, `dropdown`/`radio` and `checkbox`; a `zwave` object on a `group` is meaningless because groups
+carry no value of their own (their `children` are flattened and validated individually).
 
 ```json
 "zwave": { "index": 13, "size": 1, "signed": false }
@@ -1053,17 +1084,23 @@ Homey Compose merges this file into the compiled `app.json` as `drivers[].firmwa
 | `nopRetryInterval` | `number` | no | Present in the app schema; not covered by the public documentation. |
 | `nopMaxRetries` | `number` | no | Present in the app schema; not covered by the public documentation. |
 
+The root object is `additionalProperties: false` — those six keys plus `updates` are all that is accepted.
+`wakeInstruction` is an `i18nObject`, which the schema defines as *either* a non-empty plain string *or* an
+object that must contain `en`; the CLI always writes the object form.
+
 #### `updates[]`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `version` | `string` | yes | Firmware version, `<major>.<minor>.<patch>`. Must be valid semver. |
-| `changelog` | i18n object | yes | Short description of the changes. Must contain at least `en`. |
+| `changelog` | i18n object \| `string` | yes | Short description of the changes. As an object it must contain at least `en`; a bare non-empty string is also valid (`i18nObject` is a `oneOf`), and `homey app validate` accepts both. |
 | `device` | `object` | yes | Which devices this update targets. |
 | `files` | `array` (min 1) | yes | The firmware files of this update. |
 | `applicableTo` | `string` | no | Semver **range** deciding whether the device's current version can install this update (e.g. `>1.2.3`). Must be a valid semver range. |
 
-`additionalProperties: false` — no other keys are accepted.
+`additionalProperties: false` — no other keys are accepted. The schema types `version` and `applicableTo` as
+plain strings; the semver / semver-range checks are done by `homey app validate` (homey-lib), not by the
+schema. The Zigbee-only per-update keys have no Z-Wave equivalent here — do not carry them over.
 
 #### `updates[].device`
 
@@ -1074,7 +1111,9 @@ Homey Compose merges this file into the compiled `app.json` as `drivers[].firmwa
 | `productId` | `number` \| `number[]` | yes | Must be a subset of the driver's `zwave.productId`. |
 | `hardwareVersion` | `number` \| `number[]` | no | Restricts the update to specific hardware versions; must match the device's hardware version reported through the Version Command Class. |
 
-A driver can target multiple devices — `device` narrows an update to a subset of them.
+`additionalProperties: false` — those four keys only. A driver can target multiple devices; `device` narrows
+an update to a subset of them. Note the schema itself does not enforce the subset relation with the driver's
+`zwave.*` ids — `homey app validate` does (see below).
 
 #### `updates[].files[]`
 
@@ -1085,6 +1124,12 @@ A driver can target multiple devices — `device` narrows an update to a subset 
 | `size` | `number` | yes | File size in bytes; must match the file on disk exactly. |
 | `integrity` | `string` | yes | `<hash_name>:<hex_encoded_hash>`. |
 | `region` | `string` | no | Z-Wave region this file applies to. Omit for a global file. |
+
+`additionalProperties: false` — those five keys only. `targetId` is a plain `number` in the schema (the
+0–255 bound is the CLI prompt's own validation), and `region` is a plain `string` with **no enum**, so the
+region table below is the CLI's picker list rather than a schema constraint — a typo like `"eu"` validates.
+The Zigbee file keys (`manufacturerCode`, `imageType`, `fileVersion`, …) belong to
+`zigbee-firmware-update-file` and are rejected here.
 
 Supported `integrity` hash names: `sha256`, `sha384`, `sha512`, `sha512-256`, `sha3-256`, `sha3-384`,
 `sha3-512`, `blake2b512`, `blake2s256`. Pattern: `^(blake2b512|blake2s256|sha256|sha384|sha512|sha512-256|sha3-256|sha3-384|sha3-512):[0-9a-fA-F]+$`
@@ -1103,6 +1148,10 @@ Supported `integrity` hash names: `sha256`, `sha384`, `sha512`, `sha512-256`, `s
 | `KR` | Korea | 920.9 MHz / 921.7 MHz / 923.1 MHz |
 | `RU` | Russia | 869 MHz |
 | `US` | United States of America | 908.4 MHz / 916 MHz |
+
+A `US_LR` entry (United States, Z-Wave *and* Long Range) exists in the CLI source but is commented out, so
+the prompt never offers it. Since the schema does not constrain `region`, hand-writing `"US_LR"` passes
+validation — do not, unless Athom has confirmed Homey handles it.
 
 > **Danger:** omitting `region` when it is required can make Homey install a firmware for the wrong region,
 > rendering the device unusable in the user's region.
@@ -1175,6 +1224,12 @@ The user is notified on the firmware-update screen and can retry.
 - **Pairing-time properties need re-pairing.** `learnmode`, `defaultConfiguration`, `associationGroups`,
   `wakeUpInterval`, `multiChannelNodes` and `requireSecure` are applied during inclusion — existing devices
   must be removed and re-added for changes to take effect.
+- **Half the `zwave` block is unvalidated.** The `zwaveDevice` schema only declares `manufacturerId`,
+  `productTypeId`, `productId`, `learnmode`, `associationGroups`, `associationGroupsMultiChannel`,
+  `associationGroupsOptions`, `wakeUpInterval` and `defaultConfiguration`, and it is not
+  `additionalProperties: false`. `requireSecure`, `unlearnmode`, `multiChannelNodes`,
+  `productDocumentation` and the `zwaveAlliance*` keys — and any typo in them — pass `homey app validate`
+  silently. Spell them yourself, character for character; a misspelled `requireSecure` simply never applies.
 - **Never `getOnStart` on battery devices.** The library refuses it and logs
   `do not use getOnStart for battery devices`. Use `getOnOnline` instead.
 - **Battery-node writes are queued, not sent.** When `node.battery === true && node.online === false`,

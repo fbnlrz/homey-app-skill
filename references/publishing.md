@@ -45,7 +45,7 @@ developer.
 
 ---
 
-# The complete Homey App Store Guidelines
+## The complete Homey App Store Guidelines
 
 Source of the public rules: <https://apps.developer.homey.app/app-store/guidelines>.
 

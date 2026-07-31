@@ -53,26 +53,35 @@ homey app driver flow     # interactive: driver-scoped card → drivers/<id>/dri
 
 ## 3. Card manifest schema
 
-Every card needs at least `id` (implicit from the filename in `.homeycompose/flow/**`) and `title`.
+**Required properties** (`flowCard` definition in the app.json schema): exactly `id` and `title`. Everything else is optional. In `.homeycompose/flow/**` the `id` is filled in by Compose from the filename, so you only write `title` — but the *generated* `app.json` must have both, and `homey app validate` fails on a card missing either.
 
 | Key | Type | Card types | Description |
 |---|---|---|---|
-| `id` | `string` | all | Referenced from source code. Implicit (filename) in `.homeycompose/flow/**`; explicit in `driver.flow.compose.json` and `app.json`. |
+| `id` | `string` | all (**required**) | Referenced from source code. Implicit (filename) in `.homeycompose/flow/**`; explicit in `driver.flow.compose.json` and `app.json`. |
 | `title` | translation object | all (**required**) | Shown to the user. Short and clear. Supports the `!{{…\|…}}` inversion syntax on conditions. |
 | `titleFormatted` | translation object | all | Title with `[[argName]]` placeholders so argument values appear inline. Required in practice for any card with arguments — see §4. |
-| `hint` | translation object | all | Extra explanation that does not fit in the title. |
+| `hint` | translation object | all | Extra explanation that does not fit in the title. Not declared in the schema — see the note below. |
 | `args` | `array` | all | Argument definitions — see §6. |
 | `tokens` | `array` | triggers, actions | Local tokens the card emits — see §7. On a **then**-card this implies `"advanced": true`. |
 | `droptoken` | `"string"\|"number"\|"boolean"\|"image"`, or an `array` of those | all | A single token-only input. See §6.13. |
-| `duration` | `boolean` | actions only | Lets the user pick a duration; delivered as `args.duration` in **milliseconds**. |
-| `deprecated` | `boolean` | all | Card keeps working in existing Flows but disappears from the 'Add Card' list. |
-| `advanced` | `boolean` | all | Card is only offered in Advanced Flow. |
-| `highlight` | `boolean` | all | Card appears in the "Highlighted Cards" list above all other cards. |
-| `platforms` | `array` of `"local"\|"cloud"` | all | Required per-card when the app targets Homey Cloud. |
+| `duration` | `boolean` | actions only | Lets the user pick a duration; delivered as `args.duration` in **milliseconds**. Not declared in the schema — see the note below. |
+| `deprecated` | `true` only | all | Card keeps working in existing Flows but disappears from the 'Add Card' list. |
+| `advanced` | `true` only | all | Card is only offered in Advanced Flow. |
+| `highlight` | `true` only | all | Card appears in the "Highlighted Cards" list above all other cards. |
+| `platforms` | `array` of `"local"\|"cloud"` (unique) | all | Required per-card when the app targets Homey Cloud. |
 | `$filter` | `string` or `object` | `driver.flow.compose.json` cards | Restrict which devices the card shows up for — see §5.2. |
 | `$deviceName` | `string` | `driver.flow.compose.json` cards | Rename the auto-inserted `device` argument (default `device`). Compose-only; see `references/app-and-manifest.md`. |
 | `$id` | `string` | `.homeycompose/flow/**` files | Override the id derived from the filename. |
 | `$extends` | `string`/`array` | driver flow cards | Merge one or more `.homeycompose/drivers/flow/**` templates. |
+
+The `$`-prefixed keys are Homey Compose directives; Compose consumes them and they never reach `app.json`, so they are (correctly) absent from the schema.
+
+**Schema notes** (from the `flowCard` definition — these outrank the prose docs):
+
+* `deprecated`, `advanced` and `highlight` are declared as `"type": "boolean", "enum": [true]`. Only the literal `true` validates — writing `"deprecated": false` is a **validation error**, not a no-op. Omit the key instead.
+* `platforms` is a `uniqueItems` array; a duplicate entry (`["local", "local"]`) fails validation.
+* **Discrepancy — `hint` and `duration` are not declared in the schema.** The prose documentation documents both, published Athom apps ship both, and they validate fine because the `flowCard` definition does *not* set `additionalProperties: false` (the generated types end each object with `[k: string]: unknown`). So they are safe to use, but the schema neither type-checks nor restricts them: nothing stops you from putting `"duration": true` on a trigger or condition card, where it does nothing.
+* The same permissiveness applies to argument objects: undeclared keys such as `required` (§6.12) pass validation. See §6 for which keys the schema actually declares per type.
 
 ### 3.1 Minimal cards
 
@@ -146,7 +155,7 @@ A `droptoken` is referenced in `titleFormatted` as `[[droptoken]]`.
 * As soon as a card has at least one argument (other than the Compose-inserted device argument), a missing `titleFormatted` is a **warning** at `--level publish` and a hard **error** at `--level verified`.
 * Every one of those arguments must appear in `titleFormatted` **exactly once**. Omitting one → `Missing [[argName]]`; a placeholder that matches no argument → `Invalid [[argName]]`; the same placeholder twice → `Duplicate [[argName]]`. Each language of the translation object is checked separately.
 * A card-level `droptoken` counts as an argument named `droptoken`, so `[[droptoken]]` is mandatory too once the card has any other argument.
-* The **first** `device` argument whose `filter` contains `driver_id` — the one Compose inserts into `driver.flow.compose.json` cards — is excluded from this check. Do not write `[[device]]` for it.
+* The **first** `device` argument whose `filter` contains `driver_id` (or the alias `driverId` — the validator parses the filter as a querystring and accepts either key) — the one Compose inserts into `driver.flow.compose.json` cards — is excluded from this check. Do not write `[[device]]` for it.
 * At `--level verified` every argument additionally needs its own `title`.
 * Two cards of the same type may not share an `id` (error on SDK v3, warning on older SDKs).
 
@@ -292,12 +301,34 @@ Arguments are the user's input to a card. Declared in the card's `args` array; e
 
 | Name | Type | Description |
 |---|---|---|
-| `name` | `string` | Key used in `args` and in `[[…]]` placeholders. |
-| `type` | `string` | One of the types below. |
-| `title` | translation object | Text shown above the argument. |
-| `required` | `boolean` | Default `true`. Set `false` to make it optional. |
+| `name` | `string` (**required**) | Key used in `args` and in `[[…]]` placeholders. |
+| `type` | `string` (**required**) | One of the types below. |
+| `title` | translation object | Text shown above the argument. Optional to the schema; **required at `--level verified`** for every argument except the Compose-inserted device argument. |
+| `required` | `boolean` | Default `true`. Set `false` to make it optional. Not declared in the schema (see §3), but accepted and honoured at runtime. |
 
-**Complete list of documented argument types**: `text`, `autocomplete`, `number`, `range`, `date`, `time`, `dropdown`, `multiselect`, `checkbox`, `color`, `device`. `droptoken` is a **card-level** property, not an `args` entry. No other argument type is documented in the Arguments page.
+`name` and `type` are the only two keys the schema requires on every argument. Three types require more: `dropdown` also requires `values`; `multiselect` requires `values` **and** `conjunction`; a `device` argument matched against the schema's device-specific branch also requires `filter` (see §6.11).
+
+**Complete list of argument types the schema accepts**: `text`, `autocomplete`, `number`, `range`, `date`, `time`, `dropdown`, `multiselect`, `checkbox`, `color`, `device`, `code`. Anything else is a validation error. `droptoken` is a **card-level** property, not an `args` entry.
+
+**Discrepancy — `code` is schema-only.** The `flowCard` schema lists `code` alongside `text`/`autocomplete`/`date`/`time`/`color`/`checkbox`/`device`, but the Arguments documentation page does not mention it and no published Athom app uses it. Treat it as an undocumented/internal type: it validates, but its front-end behaviour is unspecified. Prefer `text`.
+
+**Attributes the schema declares per type** (authoritative; the schema groups the types into five branches):
+
+| Type(s) | Declared attributes (beyond `name`/`type`) | Required beyond `name`/`type` |
+|---|---|---|
+| `text`, `autocomplete`, `date`, `time`, `color`, `checkbox`, `code`, `device` | `title`, `placeholder`, `filter`, `items` | — |
+| `device` (device-specific branch) | `filter` | `filter` |
+| `number`, `range` | `title`, `min`, `max`, `step` (≥ 0), `label`, `labelMultiplier`, `labelDecimals` (≤ 10) | — |
+| `dropdown` | `title`, `values[]` — each value `{ id (required), title }` | `values` |
+| `multiselect` | `title`, `conjunction` (`"and"`\|`"or"`), `values[]` — each value `{ id, title }`, **both required** | `values`, `conjunction` |
+
+Consequences worth knowing:
+
+* `label`, `labelMultiplier` and `labelDecimals` are declared for **`number` as well as `range`**, not just `range` as §6.4 might suggest.
+* `placeholder` is **not** declared for `number` and `range` — yet the official docs' `number` example uses it and published apps ship it. It validates only because the schema does not forbid extra keys (§3). It is not an error, just undeclared.
+* `filter` and `items` are declared for `text`, `autocomplete`, `date`, `time`, `color`, `checkbox` and `code` too, not only for `device` — the schema simply groups those types together. `filter` is only meaningful on `device`.
+* `items` accepts exactly `"variable"`, `"flow_or_advanced_flow"` or `"user"`. It appears nowhere in the prose documentation or in any published app; assume it is internal to Homey's own apps and do not use it.
+* `min`/`max`/`step` are declared **only** for `number` and `range`. Putting `min` on a `text` argument is undeclared and has no effect.
 
 ### 6.1 `text`
 
@@ -412,9 +443,14 @@ Regular text input, numeric. Tokens can be dropped in this field as well.
 |---|---|---|---|
 | `min` | `number` | Minimum input value | `40` |
 | `max` | `number` | Maximum input value | `90` |
-| `step` | `number` | Step size | `10` |
-| `placeholder` | translation object | Text to show without input | `{ "en": "In degree celsius", "nl": "In graden celsius" }` |
+| `step` | `number` (≥ 0) | Step size | `10` |
+| `label` | translation object (a plain `string` is also valid) | The units after the number | `°C` |
+| `labelMultiplier` | `number` | Number is shown after multiplying by this factor | `1` |
+| `labelDecimals` | `number` (≤ 10) | Number of decimals to round to | `1` |
+| `placeholder` | translation object | Text to show without input. **Not declared in the schema for `number`/`range`** — accepted because extra keys are allowed (§3), and used by the official example below. | `{ "en": "In degree celsius", "nl": "In graden celsius" }` |
 | `title` | translation object | Text shown above argument | `{ "en": "Temperature", "nl": "Temperatuur" }` |
+
+`label`, `labelMultiplier` and `labelDecimals` work on `number` exactly as they do on `range` (§6.4) — the schema declares one attribute set for both types.
 
 ```json
 // /.homeycompose/flow/actions/wash_clothes.json
@@ -443,10 +479,10 @@ A slider with a minimum and maximum value.
 |---|---|---|---|
 | `min` | `number` | Minimum input value | `0` |
 | `max` | `number` | Maximum input value | `1` |
-| `step` | `number` | Step size | `0.01` |
+| `step` | `number` (≥ 0) | Step size | `0.01` |
 | `label` | `string` (a translation object is also accepted) | The units after the number | `%` |
 | `labelMultiplier` | `number` | Number is shown after multiplying by this factor | `100` |
-| `labelDecimals` | `number` | Number of decimals to round to | `2` |
+| `labelDecimals` | `number` (≤ 10) | Number of decimals to round to | `2` |
 | `title` | translation object | Text shown above argument | `{ "en": "Brightness", "nl": "Helderheid" }` |
 
 ```json
@@ -528,7 +564,7 @@ A dropdown list with pre-defined values.
 
 | Name | Type | Description | Example |
 |---|---|---|---|
-| `values` | `array` | An array of possible values | `[ { "id": "value1", "title": { "en": "Value 1" } } ]` |
+| `values` | `array` (**required**) | An array of possible values. Each entry requires `id`; `title` is optional to the schema but always supply it (it is what the user sees). | `[ { "id": "value1", "title": { "en": "Value 1" } } ]` |
 | `title` | translation object | Text shown above argument | `{ "en": "My title", "nl": "Mijn titel" }` |
 
 ```json
@@ -561,9 +597,9 @@ A multiselect list with pre-defined values.
 
 | Name | Type | Description | Example |
 |---|---|---|---|
-| `values` | `array` | An array of possible values | `[ { "id": "value1", "title": { "en": "Value 1" } } ]` |
+| `values` | `array` (**required**) | An array of possible values. Unlike `dropdown`, each entry requires **both** `id` and `title`. | `[ { "id": "value1", "title": { "en": "Value 1" } } ]` |
 | `title` | translation object | Text shown above argument | `{ "en": "My title", "nl": "Mijn titel" }` |
-| `conjunction` | `string` | The conjunction of the argument in the preview for users (`and` or `or`). **Required** on `multiselect` — the app.json schema rejects a `multiselect` without it. | `or` |
+| `conjunction` | `"and"` \| `"or"` (**required**) | The conjunction of the argument in the preview for users. The app.json schema rejects a `multiselect` without it, and rejects any value other than `and`/`or`. | `or` |
 
 `multiselect` requires the App Manifest's `compatibility` to be at least `>=12.5.0`; `homey app validate` errors out otherwise.
 
@@ -599,6 +635,7 @@ A dropdown list with a true and false option that supports boolean tokens.
 | Name | Type | Description | Example |
 |---|---|---|---|
 | `title` | translation object | Text shown above argument | `{ "en": "My title", "nl": "Mijn titel" }` |
+| `placeholder` | translation object | Schema-allowed (the schema groups `checkbox` with `text`), but the docs list no use for it on a checkbox. | — |
 
 ```json
 // /.homeycompose/flow/actions/set_enabled.json
@@ -617,7 +654,7 @@ A dropdown list with a true and false option that supports boolean tokens.
 
 ### 6.10 `color`
 
-A color picker that returns a HEX color, e.g. `#FF0000`. No type-specific attributes are documented.
+A color picker that returns a HEX color, e.g. `#FF0000`. No type-specific attributes are documented; the schema puts `color` in the same branch as `text`, so `title`, `placeholder`, `filter` and `items` all validate — only `title` is meaningful.
 
 ```json
 // /.homeycompose/flow/actions/set_tile_color.json
@@ -639,7 +676,9 @@ A device picker. With a `filter` containing `driver_id=…`, the Flow card is on
 
 If a card has **more than one** device field, the additional fields behave like an autocomplete-style argument listing devices paired in your app.
 
-The `filter` uses the same querystring syntax as `$filter` (§5.2), plus `driver_id`.
+The `filter` uses the same querystring syntax as `$filter` (§5.2), plus `driver_id`. It may also be given as an object instead of a querystring — the schema accepts `string` or `object` — but every documented example and every published app uses the string form.
+
+The schema describes `device` twice: once in a device-specific branch where `filter` is **required**, and once in the shared `text`-style branch where it is optional. Because the two branches are combined with `anyOf`, a `device` argument without a `filter` still validates (it then offers every device in the app — the "second device field" behaviour described above).
 
 ```json
 // /.homeycompose/flow/actions/my_action.json
@@ -663,6 +702,8 @@ In the run listener `args.device` is a live `Device` instance — you can call i
 ### 6.12 Optional arguments
 
 All arguments are required by default. `"required": false` makes one optional.
+
+**Discrepancy — `required` is not declared in the app.json schema.** It is documented prose, it is honoured at runtime, and it validates only because argument objects allow undeclared keys (§3). The consequence is that the validator will not catch a typo such as `"require": false` — it silently passes and the argument stays mandatory.
 
 ```json
 // /.homeycompose/flow/actions/post_data.json
@@ -1006,7 +1047,9 @@ Token `type` is one of `string`, `number`, `boolean`, `image`.
 | `name` | `string` (**required**) | Key used in the `tokens` object passed to `trigger()`. |
 | `type` | `string` | `string` \| `number` \| `boolean` \| `image`. Defaults to `string`; omitting it makes `homey app validate` warn that an explicit type will be required in the future. |
 | `title` | translation object (**required**) | Displayed name of the tag. |
-| `example` | translation object, number or boolean | Sample value shown in the Flow editor. |
+| `example` | translation object, number or boolean | Sample value shown in the Flow editor. A bare string counts as a translation object (the schema's `i18nObject` is `string | { en, … }`), so `"example": "Amsterdam"` is valid too. |
+
+Those four keys are the whole declared token schema — `name` and `title` are required, `type` and `example` optional. There is no `unit`, `id` or `placeholder` key on a token.
 
 ```json
 // /.homeycompose/flow/triggers/rain_start.json
@@ -1238,6 +1281,7 @@ To retire a card, or to change how it is constructed (add/remove arguments), add
 ```
 
 * Deprecated cards keep working in existing Flows but disappear from the 'Add Card' list.
+* The schema allows only `"deprecated": true`. To reverse a deprecation, **remove** the key — `"deprecated": false` fails validation.
 * **Gotcha — do not remove or change the deprecated card's run listener.** Removing the listener still breaks existing Flows even though the manifest entry remains.
 * Removing a capability removes its Flow cards; Flows using those cards break. Changing a device's class (`Device#setClass()`) can break Flows whose cards depend on that class.
 
@@ -1294,6 +1338,11 @@ Review rule: translations must be consistent. If you translate Flow cards into a
 * **One droptoken per card**, multiple allowed types.
 * **`"duration": true` collides with an argument named `duration`** — never use both on one card.
 * **`tokens` on a then-card silently makes it Advanced-Flow-only** (implies `"advanced": true`).
+* **`"deprecated": false` is a validation error, not a no-op.** The schema declares `deprecated`, `advanced` and `highlight` as `enum: [true]` — the only valid value is the literal `true`. To un-deprecate a card, delete the key.
+* **The `flowCard` schema does not forbid unknown keys.** A misspelled card or argument property (`titleFormated`, `require`, `lableDecimals`) passes `homey app validate` in silence and simply does nothing at runtime. Proofread rather than relying on the validator.
+* **`hint`, `duration` and an argument's `required` are documented but undeclared in the schema.** They work; they are just not type-checked, so `"duration": true` on a trigger or condition card validates and does nothing.
+* **Dropdown values only require `id`; multiselect values require `id` *and* `title`.** A `dropdown` value missing its `title` validates and then renders with no visible label.
+* **`multiselect` also requires `conjunction`** (`"and"` or `"or"`) — the only argument type with a second mandatory key besides `values`.
 * **Dropdown/multiselect values use `title`**, not `label`, despite one contradictory example in the Flow overview page.
 * **Token sample values use `example`**, not `placeholder`, despite one contradictory example on the Arguments page.
 * **The manifest key is `titleFormatted`** — the guidelines page's `titleFormated` is a typo.

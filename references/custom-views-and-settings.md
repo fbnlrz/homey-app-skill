@@ -95,9 +95,9 @@ copy. The `data-origin="settings"` attribute is mandatory for settings views.
 
 | Rule | Detail |
 | --- | --- |
-| `hasSettings: true` | The CLI injects this key into the generated `/app.json` when `/settings/index.html` exists. Never write it by hand. |
-| Validator | If a `/settings/` folder exists, `/settings/index.html` **must** exist, otherwise validation fails. |
-| Homey Cloud | An app with `"platforms": ["cloud"]` may not ship a custom settings view. |
+| `hasSettings: true` | The CLI injects this key into the generated `/app.json` when `/settings/index.html` exists (`homey/lib/App.js`). Never write it by hand. It is **not a property of the app.json JSON Schema**; it passes validation only because the schema sets no `additionalProperties: false` at the top level. It is CLI output, not manifest input. |
+| Validator | If a `/settings/` folder exists, `/settings/index.html` **must** exist, otherwise validation fails. (homey-lib `App#validate`: if `settings` exists, it asserts `settings/index.html` exists, case-sensitively.) |
+| Homey Cloud | An app with `"platforms": ["cloud"]` may not ship a custom settings view. **Not enforced by `homey app validate`** — homey-lib contains no such check; this is a platform / App-Store-review restriction, so validation passing does not mean the view will work on Cloud. |
 
 ### Full minimal page
 
@@ -1096,11 +1096,93 @@ restriction list: `references/homey-cloud.md`.
 
 ## Legacy manifest `settings` array {#legacy-settings}
 
-The App Manifest JSON schema still accepts a top-level `settings` array — a declarative, typed
-app-settings form with the entry types `text`, `password`, `textarea`, `label`, `number`, `slider`,
-`radio`, `dropdown`, `checkbox` and `group`, whose `title`, `hint` and `units` are translation
-objects. It is **not documented on the docs site**; the documented way to build an app settings page
-is `/settings/index.html`. Do not use it for new apps — you will find it only in old apps.
+The App Manifest JSON Schema still accepts a top-level `settings` array (`#/definitions/appSettings`)
+— a declarative, typed app-settings form. It is **not documented on the docs site**; the documented
+way to build an app settings page is `/settings/index.html`. Do not use it for new apps — you will
+find it only in old apps. Everything below is derived from `#/definitions/appSettings` in the schema
+used by `homey app validate`, which is authoritative.
+
+`settings` is an array of entries. Each entry matches exactly one of **five** shapes, selected by its
+`type` — the ten types are spread across those five shapes:
+
+| Shape (`type` values) | Required keys | Optional keys | `value` type |
+| --- | --- | --- | --- |
+| `text`, `password`, `textarea`, `label` | `id`, `type`, `title` | `hint`, `value`, `pattern` | `string` |
+| `number`, `slider` | `id`, `type`, `title` | `hint`, `value`, `units`, `min`, `max`, `step` | `number` |
+| `radio`, `dropdown` | `id`, `type`, `title`, `values` | `hint`, `value` | `string` |
+| `checkbox` | `id`, `type`, `title` | `hint`, `value` | `boolean` |
+| `group` | `type`, `title`, `children` | *(none)* | *(n/a)* |
+
+Key reference — these are **all** the keys the schema defines; there are no others:
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `id` | `string` | The `ManagerSettings` key the entry reads and writes. **Absent from the `group` shape** — a group has no `id`, and it is not in its required list either. |
+| `type` | `string` | One of the ten types above. |
+| `title` | i18n object | `{ "en": "…" }`. **Required on every shape, including `group`.** |
+| `hint` | i18n object | Optional help text. Not defined on `group`. |
+| `value` | per-shape | Default value; `string`, `number` or `boolean` per the table above. Not defined on `group`. |
+| `pattern` | `string` | **`text` / `password` / `textarea` / `label` only.** |
+| `units` | i18n object | **`number` / `slider` only.** |
+| `min`, `max` | `number` | **`number` / `slider` only.** |
+| `step` | `number`, `minimum: 0` | **`number` / `slider` only.** |
+| `values` | array | **`radio` / `dropdown` only**, and **required** for them. Each item is an object with required `id` (`string`) and required `title` (i18n object) — nothing else. |
+| `children` | array | **`group` only**, and **required** for it. Recursively another `appSettings` array, so groups may nest. |
+
+Do not carry keys over from driver settings: `label`, `highlight`, `attr` and `zwave` exist in
+`#/definitions/driverSettings` but **not** in `#/definitions/appSettings` (`label` is an app-settings
+*type*, not a key). There is likewise no `name`, `description`, `placeholder`, `required`,
+`decimals`, `multiple` or `platforms` key on an app-settings entry.
+
+```json
+// /.homeycompose/app.json (or /app.json)
+{
+  "settings": [
+    {
+      "type": "group",
+      "title": { "en": "Account" },
+      "children": [
+        { "id": "username", "type": "text",     "title": { "en": "Username" }, "value": "" },
+        { "id": "password", "type": "password", "title": { "en": "Password" }, "value": "" }
+      ]
+    },
+    {
+      "id": "interval",
+      "type": "number",
+      "title": { "en": "Poll interval" },
+      "hint":  { "en": "How often to poll the device." },
+      "units": { "en": "s" },
+      "value": 60,
+      "min": 10,
+      "max": 3600,
+      "step": 10
+    },
+    {
+      "id": "mode",
+      "type": "dropdown",
+      "title": { "en": "Mode" },
+      "value": "auto",
+      "values": [
+        { "id": "auto",   "title": { "en": "Automatic" } },
+        { "id": "manual", "title": { "en": "Manual" } }
+      ]
+    },
+    { "id": "verbose", "type": "checkbox", "title": { "en": "Verbose logging" }, "value": false }
+  ]
+}
+```
+
+> **Schema vs. docs discrepancy:** the documentation site describes no manifest-driven app-settings
+> form at all, yet the validator schema fully defines and validates the top-level `settings` array.
+> Following the schema, such a manifest passes `homey app validate` — but nothing in the published
+> documentation promises how (or whether) it is rendered. Build `/settings/index.html` instead.
+>
+> **Gotcha — `oneOf`, not `anyOf`.** The five shapes are matched with `oneOf` and none of them sets
+> `additionalProperties: false`, so a key borrowed from the wrong shape (`min` on a `text` entry,
+> `units` on a `checkbox`) is silently accepted and then ignored — you get no error, just a setting
+> that does not behave as intended. A misspelled `type`, by contrast, matches **zero** branches and
+> fails with the unhelpful "should match exactly one schema in oneOf"; check the `type` string first
+> when that error appears.
 
 ---
 

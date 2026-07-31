@@ -128,7 +128,24 @@ Homey Compose collapses these into `app.json`:
 - The signal id is the **file basename** unless the JSON contains a `$id` property, which wins.
 - `app.json`'s `signals` object only accepts the keys `433`, `868`, `ir` (`additionalProperties: false`).
 - Signals live at **app** level, not driver level — several drivers can share one signal (that is exactly what
-  `RFDriver.getRFSignal()` caches).
+  `RFDriver.getRFSignal()` caches). There is no `signals` key inside a driver object.
+- `signals` is **optional** — it is not in the manifest schema's `required` list (`id`, `name`, `version`,
+  `compatibility`, `author`).
+
+The complete JSON Schema for the top-level `signals` property is:
+
+```json
+"signals": {
+  "type": "object",
+  "patternProperties": { "^(433|868|ir)$": { "type": "object" } },
+  "additionalProperties": false
+}
+```
+
+That is the *whole* schema: each frequency value is a bare `object`, so the JSON Schema constrains **nothing**
+about an individual signal definition. Every property rule in the next sections comes from `homey-lib`'s
+`Signal` class (`lib/Signal/validators.js`), which `homey app validate` runs *after* the schema pass — the two
+layers report errors in different formats (`manifest.signals…` vs `Invalid signal: <frequency>.<signalId>`).
 
 ### Encoding properties
 
@@ -159,7 +176,7 @@ Additional keys the `homey-lib` validator accepts but the documentation page doe
 | --- | --- | --- | --- |
 | `manchesterMaxUnits` | Integer | `>= 1` (bounds table: 1–1000) | Used together with `manchesterUnit` |
 | `toggleIndexes` | Array of Integers | every index must be `< sof.length` | The validator bounds them by `sof.length` (and throws a `TypeError` when `sof` is absent), so they index into `sof`, not into the payload |
-| `dutyCycle` | Number | IR: 30–70 | IR carrier duty cycle (validated only for `ir`) |
+| `dutyCycle` | Number | must be a number (any frequency); 30–70 on `ir` | IR carrier duty cycle. The *type* check lives in `genericValidator`, so it runs for every regular signal; only the 30–70 **bounds** check is `ir`-only |
 | `toggleCmds` | String ⇒ Prontohex String | prontohex signals only | Alternating command set |
 | `type` | String | must be exactly `"prontohex"` if present | Any other value ⇒ `Invalid Signal type` |
 
@@ -819,8 +836,32 @@ when `RX_ENABLED` is `false` — so the physical remote and Homey stay in sync.
 "infrared": { "satelliteMode": true }
 ```
 
+Both are defined identically and completely in the app manifest schema — `satelliteMode` is the **only**
+property either object has:
+
+```json
+"rf433":    { "type": "object", "properties": { "satelliteMode": { "type": "boolean" } } },
+"infrared": { "type": "object", "properties": { "satelliteMode": { "type": "boolean" } } }
+```
+
+Consequences of that exact wording:
+
+- No `required` — `"rf433": {}` is valid, and the whole object may be omitted.
+- No `additionalProperties: false` — the schema will not *reject* a typo'd key inside `rf433`/`infrared`, it
+  just ignores it. Do not rely on `homey app validate` to catch a misspelled `sateliteMode`.
+- There is **no `rf868` driver object** in the schema at any level. An 868 MHz driver gets
+  `"connectivity": ["rf868"]` and nothing else; a `"rf868": { … }` key is not schema-defined (it passes only
+  because driver objects have no `additionalProperties: false` either).
+- Unlike `matter`, the validator does **not** cross-check these objects against `connectivity`: a driver may
+  carry `rf433`/`infrared` without the matching `connectivity` entry, and vice versa. (`matter` is the only
+  protocol object `homey-lib` links to `connectivity` in both directions.)
+
 Set it as shown in the official examples. Note that neither of Athom's two example apps
 (`nl.klikaanklikuit-example`, `com.lg.ir-example`) actually sets it — it is optional.
+
+**Gotcha:** `satellite_mode_` is one of `homey-lib`'s reserved driver-**settings** id prefixes (alongside
+`homey:`, `zw_`, `zb_`, `mtr_`, `thread_`, `zone_`, `energy_`, `homekit_`). Never name your own driver setting
+`satellite_mode_*` — Homey owns that namespace for the settings it generates for satellite-mode drivers.
 
 ## Infrared
 
