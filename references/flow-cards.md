@@ -1183,7 +1183,14 @@ Documented Advanced-Flow behaviour is limited to those two rules plus the token 
 
 ## 10. Automatically generated Flow cards
 
-Homey runs Flow trigger cards with conventional IDs when you call `Device#setCapabilityValue()` for a **custom** capability:
+**System capabilities generate their cards for you.** Declaring `onoff` already gives the user the triggers
+`onoff_true` / `onoff_false`, the conditions `on` / `open`, and the actions `on` / `off` / `toggle` / `open` /
+`close` — 404 such cards exist across 181 of the 184 system capabilities. The complete per-capability table is
+in `references/capabilities.md`; check it before authoring a card, because redeclaring a generated card shows
+the user a duplicate in the Flow editor.
+
+For **custom** capabilities nothing is generated — but Homey still *runs* trigger cards with conventional ids
+when you call `Device#setCapabilityValue()`, so you author the card and Homey fires it:
 
 | Custom capability type | Trigger card id(s) run automatically |
 |---|---|

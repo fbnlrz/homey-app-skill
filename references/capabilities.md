@@ -964,9 +964,433 @@ There is **no API to read log entries back**. `insights: true` on a capability l
 way to retrieve them. If a widget or an app-settings page needs a trend, keep your own capped rolling buffer in
 the device store and serve it through `api.js` — see `references/widgets.md`.
 
-Homey generates a full set of system Flow cards (triggers, conditions and actions) for every system capability a
-driver declares — do not redeclare them in `driver.flow.compose.json`. The generated set per capability is listed
-in `references/flow-cards.md`.
+## System Flow cards generated per capability
+
+Homey generates Flow cards (triggers, conditions and actions) for the system capabilities a driver declares —
+**do not redeclare them** in `driver.flow.compose.json`. For the separate convention that applies to *custom*
+capabilities, see `references/flow-cards.md`.
+
+### The complete generated set
+
+404 cards across 181 of the 184 system capabilities. Generated from
+`homey-lib` v2.51.4 (`assets/capability/capabilities/<id>.json`, key `$flow`) — this table exists nowhere
+in the documentation. A class filter means the card is only offered for devices whose `class` matches;
+`|` inside a filter is an OR.
+
+Card ids are relative to the capability, so the Flow card a user sees for `onoff` on a `light` is the
+trigger `onoff_true`. Redeclaring any of these in `driver.flow.compose.json` produces a duplicate card
+in the Flow editor and is a certification finding.
+
+| capability | kind | card id | title (en) | only for class |
+| --- | --- | --- | --- | --- |
+| `onoff` | trigger | `onoff_true` | Turned on |  |
+| `onoff` | trigger | `onoff_false` | Turned off |  |
+| `onoff` | condition | `on` | Is turned !{{on\|off}} |  |
+| `onoff` | condition | `open` | Is !{{open\|closed}} | `windowcoverings\|curtain\|blinds\|sunshade` |
+| `onoff` | action | `on` | Turn on |  |
+| `onoff` | action | `off` | Turn off |  |
+| `onoff` | action | `toggle` | Toggle on or off |  |
+| `onoff` | action | `open` | Open the curtain or blind | `windowcoverings\|curtain\|blinds\|sunshade` |
+| `onoff` | action | `close` | Close the curtain or blind | `windowcoverings\|curtain\|blinds\|sunshade` |
+| `dim` | trigger | `dim_changed` | The dim level changed |  |
+| `dim` | action | `dim` | Dim to |  |
+| `dim` | action | `dim_relative` | Set relative dim-level |  |
+| `light_hue` | action | `hue` | Set the hue |  |
+| `light_hue` | action | `color` | Set a color |  |
+| `light_hue` | action | `color_random` | Set a random color |  |
+| `light_saturation` | action | `saturation` | Set the saturation |  |
+| `light_temperature` | action | `temperature` | Set a temperature |  |
+| `vacuumcleaner_state` | trigger | `vacuumcleaner_state_changed` | The state changed to... |  |
+| `vacuumcleaner_state` | condition | `vacuumcleaner_state_is` | The vacuum cleaner !{{is\|is not}} |  |
+| `vacuumcleaner_state` | action | `clean` | Start cleaning |  |
+| `vacuumcleaner_state` | action | `spot_clean` | Start spot cleaning |  |
+| `vacuumcleaner_state` | action | `dock` | Return to dock |  |
+| `vacuumcleaner_state` | action | `stop` | Stop |  |
+| `thermostat_mode` | trigger | `thermostat_mode_changed` | The thermostat mode changed to |  |
+| `thermostat_mode` | condition | `thermostat_mode_is` | The thermostat mode !{{is\|is not}} |  |
+| `thermostat_mode` | action | `thermostat_mode_set` | Set the thermostat mode to |  |
+| `target_temperature` | trigger | `target_temperature_changed` | The target temperature changed |  |
+| `target_temperature` | action | `target_temperature_set` | Set the temperature |  |
+| `measure_temperature` | trigger | `measure_temperature_changed` | The temperature changes |  |
+| `measure_co` | trigger | `measure_co_changed` | The CO-level changed |  |
+| `measure_co2` | trigger | `measure_co2_changed` | The CO₂-level changed |  |
+| `measure_pm25` | trigger | `measure_pm25_changed` | The PM2.5 value changed |  |
+| `measure_humidity` | trigger | `measure_humidity_changed` | The humidity changed |  |
+| `measure_pressure` | trigger | `measure_pressure_changed` | The pressure changed |  |
+| `measure_noise` | trigger | `measure_noise_changed` | The noise changed |  |
+| `measure_rain` | trigger | `measure_rain_changed` | The rain changed |  |
+| `measure_wind_strength` | trigger | `measure_wind_strength_changed` | The wind strength changed |  |
+| `measure_wind_angle` | trigger | `measure_wind_angle_changed` | The wind angle changed |  |
+| `measure_gust_strength` | trigger | `measure_gust_strength_changed` | The gust strength changed |  |
+| `measure_gust_angle` | trigger | `measure_gust_angle_changed` | The gust angle changed |  |
+| `measure_battery` | trigger | `measure_battery_changed` | The battery level changed |  |
+| `measure_power` | trigger | `measure_power_changed` | The power changed |  |
+| `measure_voltage` | trigger | `measure_voltage_changed` | The voltage changed |  |
+| `measure_current` | trigger | `measure_current_changed` | The electric current changed |  |
+| `measure_luminance` | trigger | `measure_luminance_changed` | The luminance changed |  |
+| `measure_ultraviolet` | trigger | `measure_ultraviolet_changed` | The ultraviolet value changed |  |
+| `measure_water` | trigger | `measure_water_changed` | The waterflow changed |  |
+| `alarm_generic` | trigger | `alarm_generic_true` | The generic alarm turned on |  |
+| `alarm_generic` | trigger | `alarm_generic_false` | The generic alarm turned off |  |
+| `alarm_generic` | condition | `alarm_generic` | The generic alarm is !{{on\|off}} |  |
+| `alarm_motion` | trigger | `alarm_motion_true` | The motion alarm turned on |  |
+| `alarm_motion` | trigger | `alarm_motion_false` | The motion alarm turned off |  |
+| `alarm_motion` | condition | `alarm_motion` | The motion alarm is !{{on\|off}} |  |
+| `alarm_contact` | trigger | `alarm_contact_true` | The contact alarm turned on |  |
+| `alarm_contact` | trigger | `alarm_contact_false` | The contact alarm turned off |  |
+| `alarm_contact` | condition | `alarm_contact` | The contact alarm is !{{on\|off}} |  |
+| `alarm_co` | trigger | `alarm_co_true` | The CO alarm turned on |  |
+| `alarm_co` | trigger | `alarm_co_false` | The CO alarm turned off |  |
+| `alarm_co` | condition | `alarm_co` | The CO alarm is !{{on\|off}} |  |
+| `alarm_co2` | trigger | `alarm_co2_true` | The CO₂ alarm turned on |  |
+| `alarm_co2` | trigger | `alarm_co2_false` | The CO₂ alarm turned off |  |
+| `alarm_co2` | condition | `alarm_co2` | The CO₂ alarm is !{{on\|off}} |  |
+| `alarm_pm25` | trigger | `alarm_pm25_true` | The PM2.5 alarm turned on |  |
+| `alarm_pm25` | trigger | `alarm_pm25_false` | The PM2.5 alarm turned off |  |
+| `alarm_pm25` | condition | `alarm_pm25` | The PM2.5 alarm is !{{on\|off}} |  |
+| `alarm_tamper` | trigger | `alarm_tamper_true` | The tamper alarm turned on |  |
+| `alarm_tamper` | trigger | `alarm_tamper_false` | The tamper alarm turned off |  |
+| `alarm_tamper` | condition | `alarm_tamper` | The tamper alarm is !{{on\|off}} |  |
+| `alarm_smoke` | trigger | `alarm_smoke_true` | The smoke alarm turned on |  |
+| `alarm_smoke` | trigger | `alarm_smoke_false` | The smoke alarm turned off |  |
+| `alarm_smoke` | condition | `alarm_smoke` | The smoke alarm is !{{on\|off}} |  |
+| `alarm_fire` | trigger | `alarm_fire_true` | The fire alarm turned on |  |
+| `alarm_fire` | trigger | `alarm_fire_false` | The fire alarm turned off |  |
+| `alarm_fire` | condition | `alarm_fire` | The fire alarm is !{{on\|off}} |  |
+| `alarm_heat` | trigger | `alarm_heat_true` | The heat alarm turned on |  |
+| `alarm_heat` | trigger | `alarm_heat_false` | The heat alarm turned off |  |
+| `alarm_heat` | condition | `alarm_heat` | The heat alarm is !{{on\|off}} |  |
+| `alarm_water` | trigger | `alarm_water_true` | The water alarm turned on |  |
+| `alarm_water` | trigger | `alarm_water_false` | The water alarm turned off |  |
+| `alarm_water` | condition | `alarm_water` | The water alarm is !{{on\|off}} |  |
+| `alarm_battery` | trigger | `alarm_battery_true` | The battery alarm turned on |  |
+| `alarm_battery` | trigger | `alarm_battery_false` | The battery alarm turned off |  |
+| `alarm_battery` | condition | `alarm_battery` | The battery alarm is !{{on\|off}} |  |
+| `alarm_night` | trigger | `alarm_night_true` | The night alarm turned on |  |
+| `alarm_night` | trigger | `alarm_night_false` | The night alarm turned off |  |
+| `alarm_night` | condition | `alarm_night` | The night alarm is !{{on\|off}} |  |
+| `meter_power` | trigger | `meter_power_changed` | The power meter changed |  |
+| `meter_water` | trigger | `meter_water_changed` | The water meter changed |  |
+| `meter_gas` | trigger | `meter_gas_changed` | The gas meter changed |  |
+| `meter_rain` | trigger | `meter_rain_changed` | The rain meter changed |  |
+| `homealarm_state` | trigger | `homealarm_state_changed` | The state changed |  |
+| `homealarm_state` | condition | `homealarm_state_is` | The state is !{{\|not}} |  |
+| `homealarm_state` | action | `set_homealarm_state` | Set state |  |
+| `volume_set` | trigger | `volume_set_changed` | The volume changed |  |
+| `volume_set` | action | `volume_set` | Set the volume to |  |
+| `volume_set` | action | `volume_set_relative` | Set relative volume |  |
+| `volume_up` | action | `volume_up` | Turn the volume up |  |
+| `volume_down` | action | `volume_down` | Turn the volume down |  |
+| `volume_mute` | action | `volume_mute` | Mute the volume |  |
+| `volume_mute` | action | `volume_unmute` | Unmute the volume |  |
+| `volume_mute` | action | `volume_mute_toggle` | Toggle muted volume on or off |  |
+| `channel_up` | action | `channel_up` | One channel up |  |
+| `channel_down` | action | `channel_down` | One channel down |  |
+| `locked` | trigger | `locked_true` | Locked |  |
+| `locked` | trigger | `locked_false` | Unlocked |  |
+| `locked` | condition | `locked` | A lock is !{{locked\|unlocked}} |  |
+| `locked` | action | `lock` | Lock |  |
+| `locked` | action | `unlock` | Unlock |  |
+| `lock_mode` | trigger | `lock_mode_changed` | The lock mode changed to |  |
+| `lock_mode` | condition | `lock_mode_is` | The lock mode !{{is\|is not}} |  |
+| `lock_mode` | action | `mode` | Set the lock mode to |  |
+| `garagedoor_closed` | trigger | `garagedoor_closed_true` | Closed |  |
+| `garagedoor_closed` | trigger | `garagedoor_closed_false` | Opened |  |
+| `garagedoor_closed` | condition | `closed` | Is !{{closed\|open}} |  |
+| `garagedoor_closed` | action | `close` | Close |  |
+| `garagedoor_closed` | action | `open` | Open |  |
+| `garagedoor_closed` | action | `toggle` | Toggle open or closed |  |
+| `windowcoverings_state` | trigger | `windowcoverings_state_changed` | The state changed |  |
+| `windowcoverings_state` | condition | `windowcoverings_state_is` | The state is !{{\|not}} |  |
+| `windowcoverings_state` | action | `set_windowcoverings_state` | Set state |  |
+| `windowcoverings_tilt_up` | action | `tilt_up` | Tilt up |  |
+| `windowcoverings_tilt_down` | action | `tilt_down` | Tilt down |  |
+| `windowcoverings_tilt_set` | trigger | `windowcoverings_tilt_set_changed` | The tilt position changed |  |
+| `windowcoverings_tilt_set` | action | `windowcoverings_tilt_set` | Set the tilt position to |  |
+| `windowcoverings_closed` | trigger | `windowcoverings_closed_true` | Closed |  |
+| `windowcoverings_closed` | trigger | `windowcoverings_closed_false` | Opened |  |
+| `windowcoverings_closed` | condition | `closed` | Are !{{closed\|opened}} |  |
+| `windowcoverings_closed` | action | `close` | Close |  |
+| `windowcoverings_closed` | action | `open` | Open |  |
+| `windowcoverings_closed` | action | `toggle` | Toggle open or closed |  |
+| `windowcoverings_set` | trigger | `windowcoverings_set_changed` | The position changed |  |
+| `windowcoverings_set` | action | `windowcoverings_set` | Set the position to |  |
+| `button` | action | `press` | Press the button |  |
+| `speaker_playing` | trigger | `speaker_playing_true` | Started playing |  |
+| `speaker_playing` | trigger | `speaker_playing_false` | Stopped playing |  |
+| `speaker_playing` | condition | `is_playing` | Is !{{\|not}} playing |  |
+| `speaker_playing` | action | `play` | Play |  |
+| `speaker_playing` | action | `pause` | Pause |  |
+| `speaker_playing` | action | `toggle_playing` | Toggle Play/Pause |  |
+| `speaker_next` | action | `next` | Next |  |
+| `speaker_prev` | action | `prev` | Previous |  |
+| `speaker_shuffle` | action | `set_shuffle_true` | Shuffle on |  |
+| `speaker_shuffle` | action | `set_shuffle_false` | Shuffle off |  |
+| `speaker_repeat` | action | `set_repeat` | Repeat |  |
+| `speaker_artist` | trigger | `speaker_artist_changed` | The artist changed |  |
+| `speaker_album` | trigger | `speaker_album_changed` | The album changed |  |
+| `speaker_track` | trigger | `speaker_track_changed` | The track changed |  |
+| `alarm_bin_full` | trigger | `alarm_bin_full_true` | The bin is full |  |
+| `alarm_bin_full` | trigger | `alarm_bin_full_false` | The bin is no longer full |  |
+| `alarm_bin_full` | condition | `alarm_bin_full` | The bin is !{{full\|not full}} |  |
+| `alarm_bin_missing` | trigger | `alarm_bin_missing_true` | The bin was removed |  |
+| `alarm_bin_missing` | trigger | `alarm_bin_missing_false` | The bin was placed |  |
+| `alarm_bin_missing` | condition | `alarm_bin_missing` | The bin is !{{missing\|present}} |  |
+| `alarm_cleaning_pad_missing` | trigger | `alarm_cleaning_pad_missing_true` | The cleaning pad was removed |  |
+| `alarm_cleaning_pad_missing` | trigger | `alarm_cleaning_pad_missing_false` | The cleaning pad was placed |  |
+| `alarm_cleaning_pad_missing` | condition | `alarm_cleaning_pad_missing` | The cleaning pad is !{{missing\|present}} |  |
+| `alarm_cold` | trigger | `alarm_cold_true` | The cold alarm turned on |  |
+| `alarm_cold` | trigger | `alarm_cold_false` | The cold alarm turned off |  |
+| `alarm_cold` | condition | `alarm_cold` | The cold alarm is !{{on\|off}} |  |
+| `alarm_connectivity` | trigger | `alarm_connectivity_true` | Is disconnected |  |
+| `alarm_connectivity` | trigger | `alarm_connectivity_false` | Is connected |  |
+| `alarm_connectivity` | condition | `alarm_connectivity` | Is !{{connected\|disconnected}} |  |
+| `alarm_door_fault` | trigger | `alarm_door_fault_true` | The door alarm turned on |  |
+| `alarm_door_fault` | trigger | `alarm_door_fault_false` | The door alarm turned off |  |
+| `alarm_door_fault` | condition | `alarm_door_fault` | The door alarm is !{{on\|off}} |  |
+| `alarm_gas` | trigger | `alarm_gas_true` | The gas alarm turned on |  |
+| `alarm_gas` | trigger | `alarm_gas_false` | The gas alarm turned off |  |
+| `alarm_gas` | condition | `alarm_gas` | The gas alarm is !{{on\|off}} |  |
+| `alarm_light` | trigger | `alarm_light_true` | Light is detected |  |
+| `alarm_light` | trigger | `alarm_light_false` | Light is no longer detected |  |
+| `alarm_light` | condition | `alarm_light` | Light !{{is\|is not}} detected |  |
+| `alarm_lost` | trigger | `alarm_lost_true` | Is lost |  |
+| `alarm_lost` | trigger | `alarm_lost_false` | Is no longer lost |  |
+| `alarm_lost` | condition | `alarm_lost` | Is !{{lost\|not lost}} |  |
+| `alarm_moisture` | trigger | `alarm_moisture_true` | The moisture alarm turned on |  |
+| `alarm_moisture` | trigger | `alarm_moisture_false` | The moisture alarm turned off |  |
+| `alarm_moisture` | condition | `alarm_moisture` | The moisture alarm is !{{on\|off}} |  |
+| `alarm_noise` | trigger | `alarm_noise_true` | The noise alarm turned on |  |
+| `alarm_noise` | trigger | `alarm_noise_false` | The noise alarm turned off |  |
+| `alarm_noise` | condition | `alarm_noise` | The noise alarm is !{{on\|off}} |  |
+| `alarm_occupancy` | trigger | `alarm_occupancy_true` | The occupancy alarm turned on |  |
+| `alarm_occupancy` | trigger | `alarm_occupancy_false` | The occupancy alarm turned off |  |
+| `alarm_occupancy` | condition | `alarm_occupancy` | Is !{{occupied\|not occupied}} |  |
+| `alarm_pm01` | trigger | `alarm_pm01_true` | The PM0.1 alarm turned on |  |
+| `alarm_pm01` | trigger | `alarm_pm01_false` | The PM0.1 alarm turned off |  |
+| `alarm_pm01` | condition | `alarm_pm01` | The PM0.1 alarm is !{{on\|off}} |  |
+| `alarm_pm1` | trigger | `alarm_pm1_true` | The PM1 alarm turned on |  |
+| `alarm_pm1` | trigger | `alarm_pm1_false` | The PM1 alarm turned off |  |
+| `alarm_pm1` | condition | `alarm_pm1` | The PM1 alarm is !{{on\|off}} |  |
+| `alarm_pm10` | trigger | `alarm_pm10_true` | The PM10 alarm turned on |  |
+| `alarm_pm10` | trigger | `alarm_pm10_false` | The PM10 alarm turned off |  |
+| `alarm_pm10` | condition | `alarm_pm10` | The PM10 alarm is !{{on\|off}} |  |
+| `alarm_power` | trigger | `alarm_power_true` | The power alarm turned on |  |
+| `alarm_power` | trigger | `alarm_power_false` | The power alarm turned off |  |
+| `alarm_power` | condition | `alarm_power` | The power alarm is !{{on\|off}} |  |
+| `alarm_presence` | trigger | `alarm_presence_true` | The presence alarm turned on |  |
+| `alarm_presence` | trigger | `alarm_presence_false` | The presence alarm turned off |  |
+| `alarm_presence` | condition | `alarm_presence` | The presence alarm is !{{on\|off}} |  |
+| `alarm_problem` | trigger | `alarm_problem_true` | A problem is detected |  |
+| `alarm_problem` | trigger | `alarm_problem_false` | The problem is solved |  |
+| `alarm_problem` | condition | `alarm_problem` | There !{{is\|isn't}} a problem |  |
+| `alarm_pump_device` | trigger | `alarm_pump_device_true` | The pump device fault alarm turned on |  |
+| `alarm_pump_device` | trigger | `alarm_pump_device_false` | The pump device fault alarm turned off |  |
+| `alarm_pump_device` | condition | `alarm_pump_device` | The pump device fault alarm is !{{on\|off}} |  |
+| `alarm_pump_supply` | trigger | `alarm_pump_supply_true` | A problem is detected in the pump supply |  |
+| `alarm_pump_supply` | trigger | `alarm_pump_supply_false` | The problem in the pump supply is solved |  |
+| `alarm_pump_supply` | condition | `alarm_pump_supply` | There !{{is\|isn't}} a problem in the pump supply |  |
+| `alarm_running` | trigger | `alarm_running_true` | The running alarm turned on |  |
+| `alarm_running` | trigger | `alarm_running_false` | The running alarm turned off |  |
+| `alarm_running` | condition | `alarm_running` | Is !{{busy\|not busy}} |  |
+| `alarm_safety` | trigger | `alarm_safety_true` | The safety alarm turned on |  |
+| `alarm_safety` | trigger | `alarm_safety_false` | The safety alarm turned off |  |
+| `alarm_safety` | condition | `alarm_safety` | The safety alarm is !{{on\|off}} |  |
+| `alarm_stuck` | trigger | `alarm_stuck_true` | Is stuck |  |
+| `alarm_stuck` | trigger | `alarm_stuck_false` | Is no longer stuck |  |
+| `alarm_stuck` | condition | `alarm_stuck` | Is !{{stuck\|not stuck}} |  |
+| `alarm_tank_empty` | trigger | `alarm_tank_empty_true` | The tank is empty |  |
+| `alarm_tank_empty` | trigger | `alarm_tank_empty_false` | The tank is no longer empty |  |
+| `alarm_tank_empty` | condition | `alarm_tank_empty` | The tank is !{{empty\|not empty}} |  |
+| `alarm_tank_missing` | trigger | `alarm_tank_missing_true` | The tank is missing |  |
+| `alarm_tank_missing` | trigger | `alarm_tank_missing_false` | The tank is placed |  |
+| `alarm_tank_missing` | condition | `alarm_tank_missing` | Tank !{{is\|is not}} missing |  |
+| `alarm_tank_open` | trigger | `alarm_tank_open_true` | The tank opens |  |
+| `alarm_tank_open` | trigger | `alarm_tank_open_false` | The tank closes |  |
+| `alarm_tank_open` | condition | `alarm_tank_open` | The tank is !{{open\|closed}} |  |
+| `alarm_vibration` | trigger | `alarm_vibration_true` | The vibration alarm turned on |  |
+| `alarm_vibration` | trigger | `alarm_vibration_false` | The vibration alarm turned off |  |
+| `alarm_vibration` | condition | `alarm_vibration` | The vibration alarm is !{{on\|off}} |  |
+| `audio_output` | trigger | `audio_output_changed` | The audio output changed to |  |
+| `audio_output` | condition | `audio_output_is` | The audio output !{{is\|is not}} |  |
+| `audio_output` | action | `set_audio_output` | Set audio output to |  |
+| `battery_charging_state` | trigger | `battery_charging_state_changed` | The battery charging state changed |  |
+| `battery_charging_state` | condition | `battery_charging_state_is` | The battery charging state !{{is\|is not}} |  |
+| `dishwasher_program` | trigger | `dishwasher_program_changed` | The program changed to |  |
+| `dishwasher_program` | condition | `dishwasher_program_is` | The program is |  |
+| `docked` | trigger | `docked_true` | Has docked |  |
+| `docked` | trigger | `docked_false` | Has undocked |  |
+| `docked` | condition | `docked` | Is !{{docked\|not docked}} |  |
+| `fan_mode` | trigger | `fan_mode_changed` | The fan mode changed to |  |
+| `fan_mode` | condition | `fan_mode_is` | The fan mode !{{is\|is not}} |  |
+| `fan_mode` | action | `set_fan_mode` | Set the fan mode to |  |
+| `fan_speed` | trigger | `fan_speed_changed` | The fan speed changed |  |
+| `fan_speed` | action | `set_fan_speed` | Set the fan speed to |  |
+| `heater_operation_mode` | trigger | `heater_operation_mode_changed` | The heater operation mode changed to |  |
+| `heater_operation_mode` | condition | `heater_operation_mode_is` | The heater operation mode !{{is\|is not}} |  |
+| `heater_operation_mode` | action | `set_heater_operation_mode` | Set the heater operation mode to |  |
+| `measure_hepa_filter` | trigger | `measure_hepa_filter_changed` | The HEPA filter level changed |  |
+| `hot_water_mode` | trigger | `hot_water_mode_changed` | The hot water mode changed to |  |
+| `hot_water_mode` | condition | `hot_water_mode_is` | The hot water mode !{{is\|is not}} |  |
+| `hot_water_mode` | action | `set_hot_water_mode` | Set the hot water mode to |  |
+| `laundry_washer_cycles` | trigger | `laundry_washer_cycles_changed` | The cycles changed to |  |
+| `laundry_washer_cycles` | condition | `laundry_washer_cycles_is` | The cycles !{{is\|is not}} |  |
+| `laundry_washer_cycles` | action | `set_laundry_washer_cycles` | Set the laundry washer cycles to |  |
+| `laundry_washer_program` | trigger | `laundry_washer_program_changed` | The program changed to |  |
+| `laundry_washer_program` | condition | `laundry_washer_program_is` | The program !{{is\|is not}} |  |
+| `laundry_washer_speed` | trigger | `laundry_washer_speed_changed` | The speed changed to |  |
+| `laundry_washer_speed` | condition | `laundry_washer_speed_is` | The speed !{{is\|is not}} |  |
+| `laundry_washer_speed` | action | `set_laundry_washer_speed` | Set the speed to |  |
+| `level_aqi` | trigger | `level_aqi_changed` | The air quality level changed to |  |
+| `level_aqi` | condition | `level_aqi_is` | The air quality !{{is\|is not}} |  |
+| `level_carbon_filter` | trigger | `level_carbon_filter_changed` | The carbon filter level changed to |  |
+| `level_carbon_filter` | condition | `level_carbon_filter_is` | The carbon filter level !{{is\|is not}} |  |
+| `level_ch2o` | trigger | `level_ch2o_changed` | The formaldehyde level changed to |  |
+| `level_ch2o` | condition | `level_ch2o_is` | The formaldehyde level !{{is\|is not}} |  |
+| `level_co` | trigger | `level_co_changed` | The CO level changed to |  |
+| `level_co` | condition | `level_co_is` | The CO level !{{is\|is not}} |  |
+| `level_co2` | trigger | `level_co2_changed` | The CO₂ level changed to |  |
+| `level_co2` | condition | `level_co2_is` | The CO₂ level !{{is\|is not}} |  |
+| `level_nox` | trigger | `level_nox_changed` | The NOx level changed to |  |
+| `level_nox` | condition | `level_nox_is` | The NOx level !{{is\|is not}} |  |
+| `level_o3` | trigger | `level_o3_changed` | The ozone level changed to |  |
+| `level_o3` | condition | `level_o3_is` | The ozone level !{{is\|is not}} |  |
+| `level_pm1` | trigger | `level_pm1_changed` | The PM1 level changed to |  |
+| `level_pm1` | condition | `level_pm1_is` | The PM1 level !{{is\|is not}} |  |
+| `level_pm01` | trigger | `level_pm01_changed` | The PM0.1 level changed to |  |
+| `level_pm01` | condition | `level_pm01_is` | The PM0.1 level !{{is\|is not}} |  |
+| `level_pm10` | trigger | `level_pm10_changed` | The PM10 level changed to |  |
+| `level_pm10` | condition | `level_pm10_is` | The PM10 level !{{is\|is not}} |  |
+| `level_pm25` | trigger | `level_pm25_changed` | The PM2.5 level changed to |  |
+| `level_pm25` | condition | `level_pm25_is` | The PM2.5 level !{{is\|is not}} |  |
+| `level_radon` | trigger | `level_radon_changed` | The radon level changed to |  |
+| `level_radon` | condition | `level_radon_is` | The radon level !{{is\|is not}} |  |
+| `level_so2` | trigger | `level_so2_changed` | The SO₂ level changed to |  |
+| `level_so2` | condition | `level_so2_is` | The SO₂ level !{{is\|is not}} |  |
+| `level_tvoc` | trigger | `level_tvoc_changed` | The TVOC level changed to |  |
+| `level_tvoc` | condition | `level_tvoc_is` | The TVOC level !{{is\|is not}} |  |
+| `measure_aqi` | trigger | `measure_aqi_changed` | The air quality index changed |  |
+| `measure_carbon_filter` | trigger | `measure_carbon_filter_changed` | The carbon filter level changed |  |
+| `measure_ch2o` | trigger | `measure_ch2o_changed` | The formaldehyde level changed |  |
+| `measure_content_volume` | trigger | `measure_content_volume_changed` | The volume changed |  |
+| `measure_data_rate` | trigger | `measure_data_rate_changed` | The data rate changed |  |
+| `measure_data_size` | trigger | `measure_data_size_changed` | The data size changed |  |
+| `measure_distance` | trigger | `measure_distance_changed` | The distance changed |  |
+| `measure_frequency` | trigger | `measure_frequency_changed` | The frequency changed |  |
+| `level_hepa_filter` | trigger | `level_hepa_filter_changed` | The HEPA filter level changed to |  |
+| `level_hepa_filter` | condition | `level_hepa_filter_is` | The HEPA filter level !{{is\|is not}} |  |
+| `measure_moisture` | trigger | `measure_moisture_changed` | The moisture level changed |  |
+| `measure_monetary` | trigger | `measure_monetary_changed` | The monetary value changed |  |
+| `measure_nox` | trigger | `measure_nox_changed` | The NOx level changed |  |
+| `measure_o3` | trigger | `measure_o3_changed` | The ozone level changed |  |
+| `measure_odor` | trigger | `measure_odor_changed` | The odor concentration changed |  |
+| `measure_ph` | trigger | `measure_ph_changed` | The pH level changed |  |
+| `measure_pm1` | trigger | `measure_pm1_changed` | The PM1 value has changed |  |
+| `measure_pm01` | trigger | `measure_pm01_changed` | The PM0.1 value has changed |  |
+| `measure_pm10` | trigger | `measure_pm10_changed` | The PM10 value has changed |  |
+| `measure_radon` | trigger | `measure_radon_changed` | The radon level has changed |  |
+| `measure_rain_intensity` | trigger | `measure_rain_intensity_changed` | The rain intensity changed |  |
+| `measure_rotation` | trigger | `measure_rotation_changed` | The rotation changed |  |
+| `measure_signal_strength` | trigger | `measure_signal_strength_changed` | The signal strength changed |  |
+| `measure_so2` | trigger | `measure_so2_changed` | The SO₂ level has changed |  |
+| `measure_speed` | trigger | `measure_speed_changed` | The speed changed |  |
+| `measure_tvoc` | trigger | `measure_tvoc_changed` | The TVOC level has changed |  |
+| `measure_tvoc_index` | trigger | `measure_tvoc_index_changed` | The TVOC index has changed |  |
+| `measure_weight` | trigger | `measure_weight_changed` | The weight changed |  |
+| `media_input` | trigger | `media_input_changed` | The media input changed to |  |
+| `media_input` | condition | `media_input_is` | The media input !{{is\|is not}} |  |
+| `media_input` | action | `set_media_input` | Set the media input |  |
+| `mower_state` | trigger | `mower_state_changed` | The lawnmower state changed |  |
+| `mower_state` | condition | `mower_state_is` | The lawnmower !{{is\|is not}} |  |
+| `mower_state` | action | `mower_state_mow` | Start mowing |  |
+| `mower_state` | action | `mower_state_pause` | Pause mowing |  |
+| `mower_state` | action | `mower_state_dock` | Return to dock |  |
+| `operational_state` | trigger | `operational_state_changed` | The operational state changed to |  |
+| `operational_state` | condition | `operational_state_is` | The operational state !{{is\|is not}} |  |
+| `oscillating` | trigger | `oscillating_true` | Oscillation turned on |  |
+| `oscillating` | trigger | `oscillating_false` | Oscillation turned off |  |
+| `oscillating` | condition | `oscillating` | Oscillation is !{{enabled\|disabled}} |  |
+| `oscillating` | action | `enable_oscillating` | Enable Oscillation |  |
+| `oscillating` | action | `disable_oscillating` | Disable Oscillation |  |
+| `oscillating` | action | `toggle_oscillating` | Toggle Oscillation on or off |  |
+| `pump_mode` | trigger | `pump_mode_changed` | The pump mode changed to |  |
+| `pump_mode` | condition | `pump_mode_is` | The pump mode !{{is\|is not}} |  |
+| `pump_mode` | action | `set_pump_mode` | Set the pump mode to |  |
+| `pump_setpoint` | trigger | `pump_setpoint_changed` | The pump setpoint changed |  |
+| `pump_setpoint` | action | `set_pump_setpoint` | Set the pump setpoint |  |
+| `refrigerator_mode` | trigger | `refrigerator_mode_changed` | The refrigerator mode changed to |  |
+| `refrigerator_mode` | condition | `refrigerator_mode_is` | The refrigerator mode !{{is\|is not}} |  |
+| `refrigerator_mode` | action | `set_refrigerator_mode` | Set the refrigerator mode to |  |
+| `speaker_stop` | action | `stop` | Stop |  |
+| `swing_mode` | trigger | `swing_mode_changed` | The swing mode changed to |  |
+| `swing_mode` | condition | `swing_mode_is` | The swing mode !{{is\|is not}} |  |
+| `swing_mode` | action | `set_swing_mode` | Set the swing mode to |  |
+| `target_humidity_max` | trigger | `target_humidity_max_changed` | The maximum target humidity has changed |  |
+| `target_humidity_max` | action | `set_target_humidity_max` | Set the maximum target humidity |  |
+| `target_humidity_min` | trigger | `target_humidity_min_changed` | The minimum target humidity has changed |  |
+| `target_humidity_min` | action | `set_target_humidity_min` | Set the minimum target humidity |  |
+| `target_humidity` | trigger | `target_humidity_changed` | The target humidity changed |  |
+| `target_humidity` | action | `set_target_humidity` | Set the humidity |  |
+| `target_power` | trigger | `target_power_changed` | The target power changed |  |
+| `target_power` | action | `target_power_set` | Set the target power |  |
+| `target_power_mode` | trigger | `target_power_mode_changed` | The target power mode changed to |  |
+| `target_power_mode` | condition | `target_power_mode_is` | The target power mode !{{is\|is not}} |  |
+| `target_power_mode` | action | `target_power_mode_set` | Set the target power mode to |  |
+| `target_temperature_level` | trigger | `target_temperature_level_changed` | The target temperature level changed to |  |
+| `target_temperature_level` | condition | `target_temperature_level_is` | The target temperature level !{{is\|is not}} |  |
+| `target_temperature_level` | action | `set_target_temperature_level` | Set the target temperature level to |  |
+| `target_temperature_max` | trigger | `target_temperature_max_changed` | The maximum target temperature has changed |  |
+| `target_temperature_max` | action | `set_target_temperature_max` | Set the maximum target temperature |  |
+| `target_temperature_min` | trigger | `target_temperature_min_changed` | The minimum target temperature has changed |  |
+| `target_temperature_min` | action | `set_target_temperature_min` | Set the minimum target temperature |  |
+| `vacuumcleaner_job_mode` | trigger | `vacuumcleaner_job_mode_changed` | The job mode changed to |  |
+| `vacuumcleaner_job_mode` | condition | `vacuumcleaner_job_mode_is` | The job mode !{{is\|is not}} |  |
+| `vacuumcleaner_job_mode` | action | `set_vacuumcleaner_job_mode` | Set the job mode to |  |
+| `valve_position` | trigger | `valve_position_changed` | The valve position changed |  |
+| `valve_position` | action | `set_valve_position` | Set the valve position |  |
+| `ev_charging_state` | trigger | `ev_charging_state_changed` | The battery charging state changed |  |
+| `ev_charging_state` | condition | `ev_charging_state_is` | The battery charging state !{{is\|is not}} |  |
+| `evcharger_charging_state` | trigger | `evcharger_charging_state_changed` | The EV charger charging state changed |  |
+| `evcharger_charging_state` | condition | `evcharger_charging_state_is` | The EV charger charging state !{{is\|is not}} |  |
+| `evcharger_charging` | trigger | `evcharger_charging_true` | Started charging |  |
+| `evcharger_charging` | trigger | `evcharger_charging_false` | Stopped charging |  |
+| `evcharger_charging` | condition | `evcharger_charging` | Is !{{\|not}} charging |  |
+| `evcharger_charging` | action | `evcharger_charging_start` | Start charging |  |
+| `evcharger_charging` | action | `evcharger_charging_stop` | Stop charging |  |
+| `oven_mode` | trigger | `oven_mode_changed` | The oven mode changed to |  |
+| `oven_mode` | condition | `oven_mode_is` | The oven mode !{{is\|is not}} |  |
+| `oven_mode` | action | `set_oven_mode` | Set the oven mode to |  |
+| `microwave_mode` | trigger | `microwave_mode_changed` | The microwave mode changed to |  |
+| `microwave_mode` | condition | `microwave_mode_is` | The microwave mode !{{is\|is not}} |  |
+| `microwave_mode` | action | `set_microwave_mode` | Set the microwave mode to |  |
+| `laundry_dryer_dryness` | trigger | `laundry_dryer_dryness_changed` | The dryness changed to |  |
+| `laundry_dryer_dryness` | condition | `laundry_dryer_dryness_is` | The dryness !{{is\|is not}} |  |
+| `laundry_dryer_dryness` | action | `set_laundry_dryer_dryness` | Set the laundry dryer dryness to |  |
+| `alarm_freeze_risk` | trigger | `alarm_freeze_risk_true` | The freeze risk alarm turned on |  |
+| `alarm_freeze_risk` | trigger | `alarm_freeze_risk_false` | The freeze risk alarm turned off |  |
+| `alarm_freeze_risk` | condition | `alarm_freeze_risk` | The freeze risk alarm is !{{on\|off}} |  |
+| `alarm_rain` | trigger | `alarm_rain_true` | The rain alarm turned on |  |
+| `alarm_rain` | trigger | `alarm_rain_false` | The rain alarm turned off |  |
+| `alarm_rain` | condition | `alarm_rain` | The rain alarm is !{{on\|off}} |  |
+| `alarm_open` | trigger | `alarm_open_true` | The open alarm turned on |  |
+| `alarm_open` | trigger | `alarm_open_false` | The open alarm turned off |  |
+| `alarm_open` | condition | `alarm_open` | The open alarm is !{{on\|off}} |  |
+| `cooking_time` | trigger | `cooking_time_changed` | The cooking time changed |  |
+| `cooking_time` | action | `set_cooking_time` | Set the cooking time to [[cooking_time]] |  |
+| `power_level` | trigger | `power_level_changed` | The power level changed |  |
+| `power_level` | action | `power_level` | Set the power level to |  |
+| `power_level` | action | `power_level_relative` | Set relative power level |  |
+| `power_boost` | trigger | `power_boost_true` | Power boost enabled |  |
+| `power_boost` | trigger | `power_boost_false` | Power boost disabled |  |
+| `power_boost` | condition | `power_boost` | Power boost is !{{enabled\|disabled}} |  |
+| `power_boost` | action | `enable` | Enable power boost |  |
+| `power_boost` | action | `disable` | Disable power boost |  |
+| `power_boost` | action | `toggle` | Toggle power boost |  |
+| `progress` | trigger | `progress_changed` | The progress changed |  |
+
+The remaining 3 capabilities declare no `$flow` block and therefore generate no cards
+of their own; author Flow cards for them yourself if users need them.
+
 
 ---
 
