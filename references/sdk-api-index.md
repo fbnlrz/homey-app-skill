@@ -174,8 +174,9 @@ module.exports = MyDriver;
 
 ### 3.4 `Device` — [Device.html](https://apps-sdk-v3.developer.homey.app/Device.html)
 
-Extend and export from `/drivers/<id>/device.js`, or any custom class returned by
-`Driver#onMapDeviceClass`. **It is not allowed to overwrite the constructor.**
+A representation of a device paired in Homey. Extend and export from `/drivers/<id>/device.js`, or
+any custom class returned by `Driver#onMapDeviceClass`. Methods prefixed with `on` are meant to be
+overridden. **It is not allowed to overwrite the constructor.**
 The reference page documents **no events** on `Device`.
 
 **Instance properties**
@@ -220,7 +221,7 @@ The reference page documents **no events** on `Device`.
 | `async unsetStoreValue(key: string) → Promise.<void>` | |
 | `async setAvailable() → Promise.<any>` | Availability → `true`. |
 | `async setUnavailable(message?: string\|null) → Promise.<any>` | Custom unavailable message, or `null` for default. |
-| `async setWarning(message?: string\|null) → Promise.<any>` | Persistent — unset it when necessary. |
+| `async setWarning(message?: string\|null) → Promise.<any>` | Custom warning message shown to the user, or `null` to unset the warning. Persistent — unset it when necessary. |
 | `async unsetWarning() → Promise.<any>` | |
 | `async setLastSeenAt()` | Call when the device is known to be alive and responding. **Available since Homey v12.6.1.** |
 | `async setAlbumArtImage(image: Image) → Promise.<any>` | |
@@ -350,8 +351,8 @@ Manager properties: `api`, `apps`, `arp`, `audio`, `ble`, `clock`, `cloud`, `dis
 
 | Event | Payload | Description |
 | --- | --- | --- |
-| `cpuwarn` | `data: { count: number, limit: number }` | The app is using too much CPU. `count` = warnings already sent, `limit` = max warnings until the app is killed. |
-| `memwarn` | `data: { count: number, limit: number }` | The app is using too much memory. Same semantics. |
+| `cpuwarn` | `data: { count: number, limit: number }` | The app is using too much CPU. `count` = warnings already sent, `limit` = max warnings until the app is killed. When the app does not behave within a reasonable amount of time, the app is killed. |
+| `memwarn` | `data: { count: number, limit: number }` | The app is using too much memory. Same semantics, same kill behaviour. |
 | `unload` | — | The app is being stopped. |
 
 ```javascript
@@ -871,7 +872,7 @@ Retrieved via `BleService#discoverCharacteristics` or `BleService#getCharacteris
 | `async write(data: Buffer) → Promise.<Buffer>` | Throws if not connected. |
 | `async discoverDescriptors(descriptorsFilter?: Array.<string>) → Promise.<Array.<BleDescriptor>>` | Throws if not connected. |
 | `async subscribeToNotifications(callback: BleCharacteristic.NotificationCallback) → Promise.<void>` | Resolves when the subscription is successful. Throws if not connected. |
-| `async unsubscribeFromNotifications() → Promise.<void>` | Resolves when unsubscribe succeeded and the callback has been removed. |
+| `async unsubscribeFromNotifications() → Promise.<void>` | Resolves when unsubscribe succeeded and the callback has been removed. Throws if not connected. |
 
 **Type definitions**
 
