@@ -28,6 +28,8 @@ com.athom.example/
 ├─ .homeycompose/
 │  ├─ app.json
 │  └─ ...                # see "Homey Compose" below
+├─ .homeybuild/          # CLI build output — gitignored
+├─ .python_cache/        # Python runtime only: pre-compiled venvs
 ├─ assets/
 │  ├─ icon.svg
 │  └─ images/
@@ -57,8 +59,9 @@ Runtime-specific entry points:
 
 | Runtime | App | Driver / Device | Web API | Extra |
 | --- | --- | --- | --- | --- |
-| JavaScript | `app.js` | `driver.js`, `device.js` | `api.js` | — |
-| TypeScript | `app.mts` | `driver.mts`, `device.mts` | `api.mts` | — |
+| JavaScript (CommonJS) | `app.js` | `driver.js`, `device.js` | `api.js` | — |
+| JavaScript (ESM) | `app.mjs` / `app.cjs` | `driver.mjs`, `device.mjs` (or `.cjs`) | `api.mjs` / `api.cjs` | Triggered by `"type": "module"` in `package.json`; Compose then writes `"esm": true`. Requires `"compatibility": ">=12.0.1"` |
+| TypeScript | `app.mts` | `driver.mts`, `device.mts` | `api.mts` | `tsc` `outDir` must be `./.homeybuild` |
 | Python | `app.py` | `driver.py`, `device.py` | `api.py` | `.python_cache/` (pre-compiled deps) |
 
 Additional root files:
@@ -67,7 +70,8 @@ Additional root files:
 | --- | --- |
 | `/.homeyignore` | Works like `.gitignore`; excludes files/folders from the published bundle. By default **all** files in the app directory are included. |
 | `/README.<lang>.txt` | Translated App Store long description, e.g. `README.nl.txt`. |
-| `/.homeychangelog.json` | Per-version changelog (see [Internationalization](#internationalization)). |
+| `/.homeychangelog.json` | Per-version changelog (see [Internationalization](#internationalization)). `homey app create` seeds it with `{ "<version>": { "en": "First version!" } }`. |
+| `/.gitignore` | `homey app create` scaffolds it with `/env.json`, `/node_modules/`, `/.homeybuild/`. Note it does **not** ignore `/app.json` — see the ENOENT gotcha below. |
 
 `/.homeyignore` example:
 
@@ -441,11 +445,20 @@ Only required when `"runtime": "python"`.
 }
 ```
 
-> **Warning:** editing `pythonDependencies` by hand without running `homey app dependencies install`
-> bundles the app with outdated libraries; installing dependencies through any other means leaves
-> them out of the bundle entirely. Always test with `homey app install` / remote run after changing
-> dependencies. If the declared `pythonVersion` becomes outdated a newer interpreter may be used,
-> which can break the app; apps get roughly a year to move to a new full-release Python version.
+> **Gotcha — the dependency array has two names.** The documentation calls it `pythonDependencies`,
+> but homey CLI v4.4.0 and the `homey-lib` v2.51.4 app schema read and write it as
+> **`pythonPackages`** (that is the key the CLI writes into the manifest, and the key the publish
+> check for cross-platform venvs inspects). Since you should never hand-edit it either way, always
+> let `homey app dependencies add|remove|install` manage the manifest, and do not be surprised when
+> the generated `app.json` disagrees with the docs.
+
+> **Warning:** editing the dependency array by hand without running `homey app dependencies install`
+> bundles the app with outdated libraries; installing dependencies through any other means (plain
+> `pip`, `uv`) leaves them out of the bundle entirely. Always test with `homey app install` / remote
+> run after changing dependencies. Publishing a Python app that declares dependencies additionally
+> requires pre-compiled venvs for **both** `arm64` and `amd64`. If the declared `pythonVersion`
+> becomes outdated a newer interpreter may be used, which can break the app; apps get roughly a year
+> to move to a new full-release Python version.
 
 ### Additional (optional) properties
 
@@ -1171,8 +1184,55 @@ belongs in a Device Store.
 
 The page must include `<script src="/homey.js" data-origin="settings"></script>` and define
 `onHomeyReady(Homey)`, ending with `Homey.ready()` (the view stays hidden until then). The full
-settings-view API (`Homey.get/set/unset/on/api/alert/confirm/popup/openURL/__`), the Homey CSS style
-library and the sandboxing caveats are documented in `references/custom-views-and-settings.md`.
+settings-view API (`Homey.ready/get/set/unset/on/api/alert/confirm/popup/openURL/__`) and the Homey
+CSS style library are documented in `references/custom-views-and-settings.md`.
+
+#### Gotcha — settings pages are sandboxed; delivering a file to the user
+
+The settings page runs in a **sandboxed iframe**: `window.open`, `window.print` and browser downloads
+are blocked. To hand a user a generated file (a printable report, an export), serve it over the LAN
+from the app and open it with `Homey.openURL(url)`.
+
+```javascript
+// app.js — serve the report over the LAN (Homey Pro only; Homey Cloud has no LAN access)
+'use strict';
+
+const http = require('http');
+
+async serveReport(html) {
+  const token = this.generateToken();                        // random one-time token
+  const server = http.createServer((req, res) => {
+    if (req.url !== `/report?token=${token}`) { res.writeHead(403); return res.end(); }
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(html);
+  });
+  await new Promise((resolve) => server.listen(0, resolve));  // 0 = any free port
+  const { port } = server.address();
+  const address = await this.homey.cloud.getLocalAddress();   // e.g. "192.168.1.20:80"
+  const host = address.split(':')[0];
+  this.homey.setTimeout(() => server.close(), 5 * 60 * 1000); // short TTL, then tear down
+  return `http://${host}:${port}/report?token=${token}`;
+}
+```
+
+```javascript
+// settings/index.html — open it externally (works on desktop AND mobile)
+const url = await Homey.api('POST', '/report');   // your api.js returns the LAN URL
+Homey.openURL(url);
+```
+
+Three traps to avoid:
+
+- **Never branch on the return value of `window.open`.** On **desktop** a blocked `window.open`
+  returns `null` (easy to detect), but in the **mobile** Homey app it returns a **non-null but
+  invisible** window — so `if (win) { win.document.write(html) }` silently swallows the content and
+  the feature looks broken *only on mobile*. Use the LAN + `Homey.openURL(url)` path
+  **unconditionally**.
+- **`homey app run` uses Docker bridge networking**, so a LAN port the app opens is unreachable from
+  your phone or PC. The same code works under `homey app install` (production networking). Test
+  LAN-served content with `install`, not `run`.
+- **Secure anything you serve.** It is plain HTTP on the local network: gate it behind a generated
+  one-time token/password, give it a short TTL, and tear the server down afterwards (as above).
 
 ### App Userdata (`/userdata/`)
 
@@ -1272,8 +1332,13 @@ await this.homey.notifications.createNotification({
 - **`env.json` ships with the bundle.** It keeps secrets out of git, not out of the app.
 - **`this.homey.__()` returns `null`** when the key is missing (it does not throw and does not echo
   the key), so a typo'd id shows up as `null` in the UI.
-- **Editing `pythonDependencies` by hand breaks the bundle** — always go through
-  `homey app dependencies install`.
+- **Editing the Python dependency array by hand breaks the bundle** — always go through
+  `homey app dependencies add|remove|install`. Note the key is `pythonPackages` in homey CLI v4.4.0
+  and the homey-lib schema, even though the docs call it `pythonDependencies`.
+- **Settings pages are sandboxed iframes** — no `window.open`, no `window.print`, no downloads. On
+  mobile a blocked `window.open` returns a *non-null invisible* window, so never feature-detect it;
+  serve the file over the LAN and use `Homey.openURL()`. LAN ports are unreachable under
+  `homey app run` (Docker bridge networking) — test with `homey app install`.
 - **Custom app settings views and the App Web API do not exist on Homey Cloud**; neither do
   `homey:manager:api`, app-to-app permissions, LAN discovery and `ManagerCloud#getLocalAddress()`.
 
