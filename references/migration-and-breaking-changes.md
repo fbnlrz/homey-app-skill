@@ -137,7 +137,7 @@ Resources are no longer constructed with `new` and `register()`; you ask a manag
 | `new Homey.FlowCardAction('id').register()` | `this.homey.flow.getActionCard('id')` |
 | `new Homey.FlowToken(...).register()` | `await this.homey.flow.createToken(...)` / `getToken()` / `unregisterToken()` |
 | `new Homey.Image(); image.register()` | `await this.homey.images.createImage()` (also `getImage()`, `unregisterImage()`) |
-| `new Homey.InsightsLog(...)` | `await this.homey.insights.createLog(...)` (also `getLog()`, `getLogs()`, `deleteLog()`) |
+| `Homey.ManagerInsights` log APIs (callback-style) | `await this.homey.insights.createLog(id, options)` (also `getLog()`, `getLogs()`, `deleteLog()`) |
 
 **Before (SDK v2):**
 
@@ -222,8 +222,14 @@ class Driver extends Homey.Driver {
 module.exports = Driver;
 ```
 
-Card instance methods in v3: `registerRunListener()`, `registerArgumentAutocompleteListener()`,
-`getArgument()`, `getArgumentValues()`, `update()`, and `trigger()` on trigger cards.
+Card instance methods in v3: `registerRunListener()`, `registerArgumentAutocompleteListener()` and
+`getArgument()` on the `FlowCard` base class; `getArgumentValues()` on `FlowCardAction`,
+`FlowCardCondition`, `FlowCardTrigger` and `FlowCardTriggerDevice`; plus `trigger()` on trigger cards
+— `FlowCardTrigger#trigger(tokens?, state?)` and `FlowCardTriggerDevice#trigger(device, tokens?,
+state?)`.
+
+> `update` is an **event**, not a method: `card.on('update', …)` fires when the user changes the card
+> (e.g. saves a Flow). There is no `card.update()`.
 
 ### 3.4 Web API moved into the manifest
 
@@ -304,7 +310,7 @@ whose `.on()` handlers received a callback as last argument. It is now a `PairSe
 
 ```javascript
 // SDK v2
-onPair(session) {
+onPair(socket) {
   socket.on('my_event', (data, callback) => {
     this.log('data', data);
     callback(null, 'reply');
@@ -454,8 +460,13 @@ Alternative: `this.homey.on('unload', () => clearInterval(myInterval));`
 
 `Image.format`, `Image.getFormat()`, `Image.getBuffer()` and `Image.setBuffer()` are **removed**.
 
-The v3 `Image` surface is: `setUrl()`, `setPath()`, `setStream()`, `getStream()`, `update()`,
-`unregister()`. (`setStream()` requires Homey v2.2.0 or higher.) See `references/advanced-features.md`.
+The complete v3 `Image` surface is: `setUrl(url)`, `setPath(path)`, `setStream(source)`,
+`getStream()` (async, resolves to a `NodeJS.ReadableStream` carrying `Image.ImageStreamMetadata`),
+`pipe(stream)` (async, pipes into a `NodeJS.WritableStream` and resolves to the metadata),
+`update()` (async, "notify that the image's contents have changed") and `unregister()` (async,
+shorthand for `ManagerImages#unregisterImage`). `Image.ImageStreamMetadata` is
+`{ filename: string, contentType: string, contentLength?: number }`. (`setStream()` requires Homey
+v2.2.0 or higher.) See `references/advanced-features.md`.
 
 ### 3.11 Capability change: `zoneActivity`
 
@@ -519,7 +530,7 @@ library README):
 
 **`associationGroups` behaviour changed in Homey v5.0.0** (more predictable):
 
-| Driver manifest | Homey v5.0.0+ behaviour |
+| Driver manifest | Homey v5.0.0 – v13.1.x behaviour |
 | --- | --- |
 | `"associationGroups": []` | **Removes** the default association group 1 (Z-Wave Plus lifeline). |
 | `associationGroups` not specified | **Sets** the default association group 1 (Z-Wave Plus lifeline). |
@@ -527,9 +538,17 @@ library README):
 Audit every driver that either omits `associationGroups` or sets it to an empty array before shipping
 the v3 update.
 
-> Related, later change: `associationGroupsMultiChannel` is handled the same way as `associationGroups`
-> (Homey picks the correct association command class automatically). It exists for backwards
-> compatibility — prefer `associationGroups` and set `"compatibility": ">=13.2.0"`.
+> **Superseded as of Homey v13.2.0.** The Z-Wave documentation now states that *Homey is always added
+> to association group 1, the Lifeline group* — the empty-array opt-out no longer works. Explicitly:
+> "in Homey before 13.2.0 it was possible to opt-out of the Lifeline association (group 1) by
+> providing an empty array. As of version 13.2.0 the Lifeline association is always added." Treat the
+> table above as the v5–v13.1 rule and do not rely on `[]` to suppress the lifeline on current
+> firmware.
+
+> Related, later change: from v13.2.0 Homey automatically determines whether to add a regular or a
+> multi-channel association, and `associationGroupsMultiChannel` is handled the same way as
+> `associationGroups` (Homey picks the correct association command class automatically). It exists for
+> backwards compatibility — prefer `associationGroups` and set `"compatibility": ">=13.2.0"`.
 
 ### 3.13 Zigbee: MeshDriver → ZigbeeDriver
 
@@ -593,7 +612,8 @@ migrated app: [`com.ikea.tradfri`](https://github.com/athombv/com.ikea.tradfri-e
 [ ] Replace Image.setBuffer()/getBuffer()/getFormat()/format
 [ ] Swap homey-meshdriver for homey-zwavedriver and/or homey-zigbeedriver + zigbee-clusters
 [ ] Zigbee: add "endpoints", drop deviceId/profileId, re-interview the device
-[ ] Z-Wave: re-check associationGroups ([] now removes lifeline group 1)
+[ ] Z-Wave: re-check associationGroups ([] removes lifeline group 1 on v5.0.0-v13.1.x;
+    from v13.2.0 the lifeline is always added and [] no longer opts out)
 [ ] Upgrade homey-oauth2app / homey-rfdriver / homey-log to SDK v3 releases
 [ ] Move global mutable state onto App/Driver/Device instances
 [ ] homey app validate --level publish
@@ -639,7 +659,9 @@ FetchError: request to <> failed, reason: socket hang up
     at ClientRequest.emit (node:events:519:28)
     at emitErrorEvent (node:_http_client:105:11)
     at Socket.socketOnEnd (node:_http_client:542:5)
-    ...
+    at Socket.emit (node:events:531:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
   type: 'system',
   errno: 'ECONNRESET',
   code: 'ECONNRESET',
@@ -693,7 +715,13 @@ connection can throw:
 ```
 Maximum call stack size exceeded {"stack":"RangeError: Maximum call stack size exceeded
     at emitInitScript (node:internal/async_hooks:495:24)
-    ...
+    at process.nextTick (node:internal/process/task_queues:143:5)
+    at emitUncaughtException (node:internal/event_target:1090:11)
+    at [nodejs.internal.kHybridDispatch] (node:internal/event_target:824:9)
+    at WebSocket.dispatchEvent (node:internal/event_target:751:26)
+    at fireEvent (node:internal/deps/undici/undici:11340:14)
+    at failWebsocketConnection (node:internal/deps/undici/undici:11421:9)
+    at closeWebSocketConnection (node:internal/deps/undici/undici:11692:9)
     at WebSocket.close (node:internal/deps/undici/undici:12352:9)
     at WS.doClose (file:///../node_modules/engine.io-client/build/esm-debug/transports/websocket.js:83:21)"}
 ```
@@ -1078,7 +1106,9 @@ module.exports = Device;
 Rules for this pattern:
 
 * **Never** call `addCapability` / `removeCapability` / `setCapabilityOptions` / `setClass`
-  unconditionally on every init — all are documented as expensive.
+  unconditionally on every init. The first three are documented as *"an expensive method so use it
+  only when needed"*; `setClass()` is not labelled expensive but is documented as breaking every Flow
+  that depends on the class, so it needs the same guard.
 * Write the flag **after** the migration steps succeed, so a crash mid-migration retries next boot.
 * Make each step idempotent anyway (`hasCapability`, `getClass`, value comparison) — a store write can
   fail.
@@ -1221,9 +1251,10 @@ persisted only after your `onSettings` resolves — read `newSettings` from the 
 argument, never `this.getSetting(...)`. (Full device-settings detail in
 `references/drivers-and-devices.md`.)
 
-**Gotcha — `associationGroups: []` changed meaning in Homey v5.0.0.** It now *removes* lifeline group 1
-instead of being a no-op, and omitting the key *adds* it. Re-audit every Z-Wave driver during the v3
-port.
+**Gotcha — `associationGroups: []` changed meaning twice.** From Homey v5.0.0 an empty array *removes*
+lifeline group 1 while omitting the key *adds* it; from Homey v13.2.0 the Lifeline association is
+**always** added and the empty-array opt-out is gone. Re-audit every Z-Wave driver during the v3 port,
+and again if you raise `compatibility` to `>=13.2.0`.
 
 **Gotcha — Zigbee endpoint ids are not what they used to be.** Re-run the Zigbee devtools "interview"
 per device; a wrong `endpoints` definition yields a device that pairs but does nothing.
@@ -1264,7 +1295,10 @@ SDK v3, but the docs state they will be removed in a later SDK version. Port to 
 * <https://apps.developer.homey.app/guides/homey-cloud> (`platforms`, SDK v3 requirement)
 * <https://apps.developer.homey.app/app-store/updates> (versioning, Test/Live, rollback)
 * <https://apps.developer.homey.app/advanced/web-api>
+* <https://apps.developer.homey.app/advanced/images> (`Image` delivery types, `setStream()` ≥ v2.2.0)
 * <https://apps.developer.homey.app/advanced/homey-compose>
+* <https://apps.developer.homey.app/wireless/z-wave> (`associationGroups` from Homey v13.2.0)
+* <https://apps.developer.homey.app/the-basics/getting-started> (CLI requires Node.js v24+)
 * <https://apps-sdk-v3.developer.homey.app> (Homey, App, Driver, Device, PairSession, Image, Flow*)
 * <https://athombv.github.io/node-homey-zwavedriver/>
 * <https://athombv.github.io/node-homey-zigbeedriver/>

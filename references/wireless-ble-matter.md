@@ -69,13 +69,15 @@ How a BLE device exposes itself to Homey is entirely up to the manufacturer, so 
 | Member | Signature | Notes |
 | --- | --- | --- |
 | `discover` | `async discover(serviceFilter?: string[]): Promise<BleAdvertisement[]>` | Discovers BLE peripherals for a certain time. `serviceFilter` = list of required `serviceUuids` the peripheral must expose. Requires `homey:wireless:ble`. |
-| `find` | `async find(peripheralUuid: string): Promise<BleAdvertisement>` | Finds a BLE peripheral with the given `peripheralUuid`. Requires `homey:wireless:ble`. |
-| `subscribeToAdvertisements` | `async subscribeToAdvertisements(peripheralUuid, { rateLimitMs }, callback)` | Near-realtime advertisement stream without a GATT connection. Only on Homeys with the `ble-advertisements` feature. |
-| `unsubscribeFromAdvertisements` | `async unsubscribeFromAdvertisements(peripheralUuid)` | Stops the subscription. Call from `onUninit()`. |
+| `find` | `async find(peripheralUuid: string): Promise<BleAdvertisement>` | Finds a BLE peripheral with the given `peripheralUuid`. Requires `homey:wireless:ble`. Rejects (`NotFound`) when no peripheral with that uuid can be found — treat a rejection as "device out of range". |
+| `subscribeToAdvertisements` | `async subscribeToAdvertisements(peripheralUuid: string, { rateLimitMs?: number }, callback: (advertisement: BleAdvertisement) => void): Promise<void>` | Near-realtime advertisement stream without a GATT connection (passive BLE scanning). `rateLimitMs` = minimum interval between delivered advertisements, **default 1000**. Only on Homeys with the `ble-advertisements` feature. Requires `homey:wireless:ble`. |
+| `unsubscribeFromAdvertisements` | `async unsubscribeFromAdvertisements(peripheralUuid: string): Promise<void>` | Stops the subscription. Call from `onUninit()`. |
 | `__registerPeripheral` | `__registerPeripheral(peripheral: BlePeripheral)` | Internal. Registers a peripheral connection, needed for notify and disconnect. Do not call. |
 | `__unregisterPeripheral` | `__unregisterPeripheral(peripheral: BlePeripheral)` | Internal. Unregisters a peripheral connection when disconnected. Do not call. |
 
-**`ManagerBLE` emits no events.** There is no `advertisementReceived` event in the SDK v3 API — the documented push mechanism is `subscribeToAdvertisements()`. The only BLE event in the SDK is `'disconnect'` on `BlePeripheral` (§2.6).
+`discover`, `find`, `__registerPeripheral` and `__unregisterPeripheral` are the four members in the `ManagerBLE` apidoc; `subscribeToAdvertisements` / `unsubscribeFromAdvertisements` are documented in the Bluetooth LE guide and the Python API reference.
+
+**The `ManagerBLE` API reference documents no events.** There is no `advertisementReceived` event in the SDK v3 API — the documented push mechanism is `subscribeToAdvertisements()`. The only documented BLE event is `'disconnect'` on `BlePeripheral` (§2.6).
 
 ```javascript
 // Discover everything nearby
@@ -107,8 +109,8 @@ Retrieved from `ManagerBLE#discover()` or `ManagerBLE#find()`. Never construct i
 | `serviceData` | `Array<{ uuid: string, data: Buffer }>` | Array of service data entries a peripheral may expose during advertisement | No |
 | `manufacturerData` | `Buffer` | Manufacturer-specific data for the peripheral | — |
 | `address` | `string` | The mac address of the peripheral | Yes |
-| `addressType` | `string` | The address type of the peripheral | Yes |
-| `timestamp` | — | Timestamp of the last time it was discovered | — |
+| `addressType` | `string` | The address type of the peripheral (`"random"` \| `"public"`) | Yes |
+| `timestamp` | `number` | Timestamp of the last time it was discovered (Unix epoch, ms) | — |
 | `state` | `string` | The state of the peripheral (`"(dis)connected"`, `"(dis)connecting"`, `"error"`) | Yes |
 
 | Method | Signature | Description |
@@ -126,12 +128,12 @@ Retrieved from `BleAdvertisement#connect()`. Never construct it yourself.
 | `uuid` | `string` | Uuid of the peripheral |
 | `id` | `string` | Id of the peripheral assigned by Homey |
 | `address` | `string \| undefined` | The mac address of the peripheral |
-| `addressType` | `string \| undefined` | The address type of the peripheral |
+| `addressType` | `string \| undefined` | The address type of the peripheral (`"random"` \| `"public"` \| `"unknown"`) |
 | `connectable` | `boolean \| undefined` | Indicates if Homey can connect to the peripheral |
 | `isConnected` | — | If the peripheral is currently connected to Homey |
 | `rssi` | `number \| undefined` | The rssi signal strength value for the peripheral |
 | `services` | `BleService[]` | Array of services of the peripheral. **Only filled after** the services are discovered via `discoverServices` / `getService` |
-| `state` | `string` | The state of the peripheral |
+| `state` | `string` | The state of the peripheral: `"error"`, `"connecting"`, `"connected"`, `"disconnecting"`, `"disconnected"` |
 
 | Method | Signature | Throws | Description |
 | --- | --- | --- | --- |
@@ -197,7 +199,7 @@ Retrieved from `BleService#discoverCharacteristics()` or `BleService#getCharacte
 | `id` | `string` | Id of the characteristic assigned by Homey |
 | `name` | `string` | The name of the characteristic |
 | `type` | `string` | The type of the characteristic |
-| `properties` | `string[]` | The properties of the characteristic |
+| `properties` | `string[]` | The properties of the characteristic. Values: `broadcast`, `read`, `writeWithoutResponse`, `write`, `notify`, `indicate`, `authenticatedSignedWrites`, `extendedProperties` |
 | `value` | `Buffer \| null` | The value of the characteristic. Set to the last result of `BleCharacteristic#read`; **initially `null`** |
 | `descriptors` | `BleDescriptor[]` | Discovered descriptors |
 
@@ -206,7 +208,7 @@ Retrieved from `BleService#discoverCharacteristics()` or `BleService#getCharacte
 | `read` | `async read(): Promise<Buffer>` | not connected | Read the value for this characteristic |
 | `write` | `async write(data: Buffer): Promise<Buffer>` | not connected | Write a value to this characteristic |
 | `discoverDescriptors` | `async discoverDescriptors(descriptorsFilter?: string[]): Promise<BleDescriptor[]>` | not connected | Discovers descriptors for this characteristic |
-| `subscribeToNotifications` | `async subscribeToNotifications(callback): Promise<void>` | not connected | Subscribe to BLE notifications. Resolves when the subscription is successful |
+| `subscribeToNotifications` | `async subscribeToNotifications(callback: BleCharacteristic.NotificationCallback): Promise<void>` | not connected | Subscribe to BLE notifications; the callback is called with the data as a Buffer. Resolves when the subscription is successful. **Only one callback can be active at a time** per characteristic |
 | `unsubscribeFromNotifications` | `async unsubscribeFromNotifications(): Promise<void>` | not connected | Resolves when unsubscribe succeeded and the callback has been removed |
 
 **Type definition `BleCharacteristic.NotificationCallback`**: `NotificationCallback(data: Buffer)` — `data` is the received notification data.
@@ -228,7 +230,7 @@ Retrieved from `BleCharacteristic#discoverDescriptors()`.
 | `readValue` | `async readValue(): Promise<Buffer>` | not connected | Read the value for this descriptor |
 | `writeValue` | `async writeValue(data: Buffer): Promise<Buffer>` | not connected | Write a value to this descriptor |
 
-**Note the naming asymmetry:** characteristics use `read()` / `write()`, descriptors use `readValue()` / `writeValue()`.
+**Note the naming asymmetry:** in the JavaScript SDK characteristics use `read()` / `write()` while descriptors use `readValue()` / `writeValue()`. (The Python SDK has no such asymmetry — descriptors there use `read()` / `write()` too.)
 
 ### 2.10 UUID conventions
 
@@ -506,7 +508,14 @@ class Device extends Homey.Device {
 module.exports = Device;
 ```
 
-Only one option is documented for `subscribeToAdvertisements`: `rateLimitMs` (minimum milliseconds between callback invocations). The polling fallback stays correct, but for sensors that beacon every few seconds it is functionally slower than a live subscription.
+Only one option is documented for `subscribeToAdvertisements`: `rateLimitMs` (minimum milliseconds between delivered advertisements, **default 1000**). The polling fallback stays correct, but for sensors that beacon every few seconds it is functionally slower than a live subscription.
+
+Documented subscription semantics:
+
+- The subscription uses **passive BLE scanning** — no GATT connection is opened, so it does not block the manufacturer's own app and costs the peripheral nothing extra.
+- **Only one callback can be active per peripheral.** Subscribing again for the same `peripheralUuid` *replaces* the previous callback rather than adding a second one.
+- The callback receives a `BleAdvertisement`. **The same instance is reused and updated in place** across broadcasts — never store the advertisement object itself expecting a snapshot; copy the fields you need (as the example above does) or read them immediately.
+- Requires the `homey:wireless:ble` permission, like `discover()` and `find()`.
 
 ### 2.17 Polling patterns for battery devices
 
@@ -637,10 +646,35 @@ The `store.peripheralUuid` is what the Device later feeds to `ManagerBLE#find()`
 - **Gotcha:** descriptors use `readValue()`/`writeValue()`, not `read()`/`write()`. Mixing them up throws.
 - **Gotcha:** the driver manifest needs `"connectivity": ["ble"]`; forgetting it does not break runtime but is flagged in App Store review and mis-categorises the driver.
 - **Gotcha:** manufacturers implement BLE inconsistently — never assume `localName`, `serviceUuids` or `serviceData` are present. Only `uuid`, `rssi`, `connectable`, `state`, `address` and `addressType` are always there.
+- **Gotcha:** the `BleAdvertisement` handed to a `subscribeToAdvertisements` callback is **the same object every time, mutated in place**. Storing it and reading it later gives you the *latest* values, not the ones from that callback — copy the fields you care about inside the callback.
+- **Gotcha:** only **one** advertisement callback can be active per peripheral, and only **one** notification callback per characteristic. Subscribing a second time silently replaces the first — it does not fan out.
+- **Gotcha:** `find()` rejects when the peripheral cannot be found at all (`NotFound`), so an out-of-range device makes it throw rather than resolve with `undefined`. Always `.catch()` it and `setUnavailable()`.
 
 ### 2.20 Python equivalents
 
-The Python runtime exposes the same API with snake_case names: `self.homey.ble.discover()`, `find()`, `subscribe_to_advertisements()`, `unsubscribe_from_advertisements()`, `advertisement.connect()`, `peripheral.disconnect()`, `peripheral.discover_services()`, `peripheral.get_service()`, `service.discover_characteristics()`, `characteristic.subscribe_to_notifications()`, `characteristic.unsubscribe_from_notification()`, `self.homey.has_feature()`, `self.homey.set_interval()` / `clear_interval()`. Advertisement properties become `local_name` etc. See `references/python-apps.md`.
+The Python runtime exposes the same BLE API, mostly as a snake_case rename of the JavaScript names — but **several members are not a straight rename**, so do not machine-translate. Verified mapping:
+
+| JavaScript | Python |
+| --- | --- |
+| `this.homey.ble.discover(serviceFilter?)` | `await self.homey.ble.discover(service_filter=None)` → tuple |
+| `this.homey.ble.find(uuid)` | `await self.homey.ble.find(peripheral_uuid)` (raises `NotFound`) |
+| `ble.subscribeToAdvertisements(uuid, { rateLimitMs }, cb)` | `await self.homey.ble.subscribe_to_advertisements(peripheral_uuid, callback, rate_limit_ms=1000)` — **callback is the 2nd positional arg, the rate limit is a keyword** |
+| `ble.unsubscribeFromAdvertisements(uuid)` | `await self.homey.ble.unsubscribe_from_advertisements(peripheral_uuid)` |
+| `advertisement.connect()` | `await advertisement.connect()` |
+| `peripheral.isConnected` | `peripheral.connected` (**not** `is_connected`) |
+| `peripheral.discoverAllServicesAndCharacteristics()` | `await peripheral.discover_all()` (**not** a literal rename) |
+| `peripheral.discoverServices(filter?)` | `await peripheral.discover_services(uuid_filter=None)` |
+| `peripheral.getService(uuid)` | `await peripheral.get_service(uuid)` |
+| `peripheral.updateRssi()` | `await peripheral.update_rssi()` → `int` |
+| `peripheral.on('disconnect', cb)` | `peripheral.on_disconnect(callback)` |
+| `service.discoverCharacteristics(filter?)` | `await service.discover_characteristics(uuid_filter=None)` |
+| `characteristic.subscribeToNotifications(cb)` | `await characteristic.subscribe_to_notifications(callback)` |
+| `characteristic.unsubscribeFromNotifications()` | `await characteristic.unsubscribe_from_notification()` (**singular** "notification") |
+| `descriptor.readValue()` / `writeValue(data)` | `await descriptor.read()` / `await descriptor.write(data)` (**no** `read_value`/`write_value`) |
+| `this.homey.hasFeature(f)` | `self.homey.has_feature(f)` |
+| `this.homey.setInterval` / `clearInterval` | `self.homey.set_interval` / `clear_interval` |
+
+Advertisement properties become `local_name`, `address_type`, `manufacturer_data`, `service_data`, `service_uuids`. Buffers become `bytes`. Arrays returned by discovery are `tuple`s, not `list`s. There is no `assert_connected`. See `references/python-apps.md`.
 
 ---
 
@@ -648,15 +682,15 @@ The Python runtime exposes the same API with snake_case names: `self.homey.ble.d
 
 <https://tools.developer.homey.app/tools/ble> (from the Homey Developer Portal at <https://tools.developer.homey.app/>).
 
-The tool follows the BLE hierarchy across four columns: **All Advertisements → Peripheral → Service → Characteristic → Descriptor**.
+The tool follows the BLE hierarchy, one column per level: **All Advertisements → Peripheral → Service → Characteristic → Descriptor**.
 
 | Column | What it does |
 | --- | --- |
 | **Advertisements** | Shows all devices detected by Homey, sorted on signal strength (`RSSI`). "Discover devices" button at the top of the column triggers a discovery. Clicking an advertisement opens the peripheral. |
-| **Peripheral** | Details for the selected device. Connect / disconnect (most devices), "Discover Services", "Discover Services & Characteristics", update RSSI. Some devices cannot be connected to at all — e.g. when all their data is already in the advertisement. |
+| **Peripheral** | Details for the selected device. For most BLE devices you can connect and disconnect. A connection must be made **first**; only after a successful connection do the other options appear — "Discover Services", "Discover Services & Characteristics", update RSSI, and disconnect. Some devices cannot be connected to at all — e.g. when all their data is already in the advertisement and a connection is unnecessary. |
 | **Services** | Each service is a collection of one or more characteristics; they must be discovered before more information is displayed. |
 | **Characteristics** | The most complex section — each characteristic is a specific functionality (from reading a device identifier to telling a BLE bulb to change colour). Read/write plus descriptor discovery and BLE notification subscribe/unsubscribe. |
-| **Descriptors** | Extra information about the characteristic (user description, subscription status). Its read/write buttons behave like the characteristic's. |
+| **Descriptors** | Not always present. Provide extra information about the characteristic they belong to (user description, subscription status). Their read/write buttons behave like the characteristic's. |
 
 Practical notes from the tool page:
 
@@ -909,6 +943,12 @@ Homey periodically checks the **Matter Distributed Compliance Ledger** (DCL) at 
 - <https://apps-sdk-v3.developer.homey.app/BleCharacteristic.html>
 - <https://apps-sdk-v3.developer.homey.app/BleDescriptor.html>
 - <https://apps-sdk-v3.developer.homey.app/Homey.html>
+- <https://python-apps-sdk-v3.developer.homey.app/manager/ble.html>
+- <https://python-apps-sdk-v3.developer.homey.app/ble_advertisement.html>
+- <https://python-apps-sdk-v3.developer.homey.app/ble_peripheral.html>
+- <https://python-apps-sdk-v3.developer.homey.app/ble_characteristic.html>
+- <https://python-apps-sdk-v3.developer.homey.app/ble_service.html>
+- <https://python-apps-sdk-v3.developer.homey.app/ble_descriptor.html>
 - <https://tools.developer.homey.app/tools/ble>
 - <https://tools.developer.homey.app/tools/matter>
 - <https://github.com/athombv/com.mipow-example>

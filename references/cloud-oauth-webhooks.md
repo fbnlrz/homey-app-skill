@@ -62,6 +62,8 @@ myOAuth2Callback
 
 ## 2. OAuth2 — how Homey's callback relay works
 
+OAuth2 is the standard smart-home manufacturers use to delegate user access to their Web API. You normally register an OAuth2 client on a developer website owned by the manufacturer, providing a *Name*, *Redirect URL*, *Scopes* and/or an *Image*.
+
 Almost every provider requires the Redirect URL to be registered in advance for security reasons. Homey is behind a NAT and has no static URL to redirect to, so Athom hosts a fixed public redirect endpoint that relays the resulting `code` back into your app over Homey's cloud connection.
 
 ```
@@ -163,6 +165,8 @@ Minimal official shape:
 const Homey = require('homey');
 
 const API_URL = 'https://api.myservice.com/oauth2/authorise?response_type=code';
+// The official doc writes this with a trailing slash ('…/oauth2/callback/').
+// Whichever form you pick, register that exact string at the provider — see §2.
 const CALLBACK_URL = 'https://callback.athom.com/oauth2/callback';
 const CLIENT_ID = Homey.env.CLIENT_ID;
 const OAUTH_URL = `${API_URL}&client_id=${CLIENT_ID}&redirect_uri=${CALLBACK_URL}`;
@@ -397,7 +401,7 @@ Methods:
 | `getConfig({ configId })` | Returns the stored config object. |
 | `hasOAuth2Client({ sessionId, configId })` → `boolean` | |
 | `checkHasOAuth2Client({ sessionId, configId })` | Throws `OAuth2Error('Invalid OAuth2 Client')`. |
-| `createOAuth2Client({ sessionId, configId })` → `OAuth2Client` | Instantiates and wires `log`/`error`/`debug`/`save`/`destroy` events, then calls `client.init()`. |
+| `createOAuth2Client({ sessionId, configId })` → `OAuth2Client` | Instantiates and wires `log`/`error`/`debug`/`save`/`destroy` events, then calls `client.init()`. Throws `OAuth2Error('OAuth2 Client already exists')` when a client for that `sessionId`+`configId` is already in memory. |
 | `getOAuth2Client({ sessionId, configId })` → `OAuth2Client` | Returns the in-memory client, or rehydrates one from settings. Throws `OAuth2Error('Could not get OAuth2Client')`. |
 | `saveOAuth2Client({ configId, sessionId, client })` | Persists `{ configId, title, token }` into settings. |
 | `deleteOAuth2Client({ sessionId, configId })` | Removes the saved session and the in-memory client. |
@@ -461,7 +465,7 @@ Token / session methods:
 | Method | Description |
 | --- | --- |
 | `async getTokenByCode({ code })` | Calls `onGetTokenByCode`, validates the result is an `OAuth2Token`, stores it. Throws `Invalid Token returned in onGetTokenByCode` otherwise. |
-| `async getTokenByCredentials({ username, password })` | Same for the password grant. |
+| `async getTokenByCredentials({ username, password })` | Same for the password grant. Note the error string differs: `Invalid Token returned in getTokenByCredentials`. |
 | `getToken()` / `setToken({ token })` | In-memory token accessors. |
 | `getTitle()` / `setTitle({ title })` | Human-readable session title. |
 | `getAuthorizationUrl({ scopes, state })` | Builds the authorize URL via `onHandleAuthorizationURL`. `scopes` defaults to the configured scopes, `state` to `OAuth2Util.getRandomId()`. |
@@ -489,18 +493,20 @@ Overloadable `on*` methods (the extension surface):
 | `async onRefreshToken()` | RFC 6749 §6: requires `token.isRefreshable()` (else `OAuth2Error('Token cannot be refreshed')`); `POST TOKEN_URL` with `grant_type=refresh_token`, `client_id`, `client_secret`, `refresh_token`; on success calls `onHandleRefreshTokenResponse` then `save()`. |
 | `async onHandleRefreshTokenResponse({ response })` | Generic JSON → token (merges with the previous token so a missing `refresh_token` in the refresh response is preserved). |
 | `async onHandleRefreshTokenError({ response })` | Generic error extraction. |
-| `async onRequestError({ req, url, opts, err })` | Logs and rethrows `err`. |
+| `async onRequestError({ req, url, opts, err })` | Called only when `fetch()` itself throws (network error). Default emits a `debug` line and rethrows `err`. The default implementation only destructures `err`, but all four keys are passed. |
 | `async onRequestResponse({ req, url, opts, response, didRefreshToken })` | Orchestrates: `onShouldRefreshToken` → refresh + replay once (second failure throws `OAuth2Error('Token refresh failed')`) → `onIsRateLimited` → `onHandleResponse` → `onHandleResult`. |
-| `async onShouldRefreshToken({ status })` | `return status === 401;` |
+| `async onShouldRefreshToken({ status })` | `return status === 401;` — **this is the library's own default; you do not need to write it.** Note it is invoked as `onShouldRefreshToken(response)` with the whole `fetch` response, so an override may also read `response.headers`. |
 | `async onIsRateLimited({ status, headers })` | `return status === 429;` — a `true` result throws `OAuth2Error('Rate Limited')` (there is **no** automatic retry). |
 | `async onHandleResponse({ response, status, statusText, headers, ok })` | `204` → `undefined`; `application/json` → `.json()`; `image/*` → `.buffer()`; otherwise `.text()`. On non-OK, calls `onHandleNotOK` and throws its return value (must be an `Error`, else `OAuth2Error('Invalid onHandleNotOK return value, expected: instanceof Error')`). |
-| `async onHandleNotOK({ body, status, statusText, headers })` | Returns `new Error(`${status} ${statusText}`)` with `.status` / `.statusText` attached. **Override this to surface the provider's error message.** |
+| `async onHandleNotOK({ body, status, statusText, headers })` | Returns an `Error` whose message is `<status> <statusText>` (`statusText` falls back to `Unknown Error`), with `.status` / `.statusText` attached. **Override this to surface the provider's error message.** Must *return* (or throw) an `Error`. |
 | `async onHandleResult({ result, status, statusText, headers })` | Returns `result` unchanged. |
 | `onHandleAuthorizationURL({ scopes, state })` | Appends `state`, `client_id`, `response_type=code`, `scope`, `redirect_uri` to `AUTHORIZATION_URL` (using `&` if it already contains `?`). |
 | `onHandleAuthorizationURLScopes({ scopes })` | `scopes.join(' ')` (RFC 6749 App. A.4). Override for APIs that use `,`. |
 | `async onGetOAuth2SessionInformation()` | `{ id: OAuth2Util.getRandomId(), title: null }`. **Override to return a stable per-account id** (e.g. the account's user id) so re-pairing the same account reuses one session. |
 
-Generic token-error extraction order (used by all three `onHandle*Error` defaults) on a JSON body: `error_description` → `error` → `message` → `errors[]` (joined) → otherwise `Error('Invalid Response (<status> <statusText>)')`. `OAuth2Error` is constructed with the message and the HTTP status.
+Generic token-error extraction order (used by all three `onHandle*Error` defaults) on a JSON body: `error_description` → `error` → `message` → `errors[]` (joined) → otherwise `Error('Invalid Response (<status> <statusText>)')`. `OAuth2Error` is constructed with the message and the HTTP status. The JSON path is only taken when the response's `Content-Type` starts with `application/json`; anything else falls straight through to `Invalid Response (…)`.
+
+**Gotcha:** the generic *success* parser (behind `onHandleGetTokenByCodeResponse` / `…CredentialsResponse` / `onHandleRefreshTokenResponse`) is equally strict — if the token endpoint answers with anything but `application/json` (some providers return `text/plain` or `application/x-www-form-urlencoded`), it throws `Error('Could not parse Token Response')`. Override the matching `onHandle*Response` method and build the `OAuth2Token` yourself in that case.
 
 Events emitted by an `OAuth2Client`: `log`, `error`, `debug`, `save`, `destroy`.
 
@@ -560,7 +566,7 @@ module.exports = class MyBrandOAuth2Token extends OAuth2Token {
 | --- | --- |
 | `showView` | On `login_oauth2` starts the OAuth2 callback flow; on `login_credentials` skips ahead when a session already exists. |
 | `login` | `{ username, password }` → `client.getTokenByCredentials(...)`. |
-| `list_sessions` | Returns saved sessions + a `$new` row. Throws when `allowMultiSession` is `false`. |
+| `list_sessions` | Returns one row per saved session (`name` = the session's `title`, falling back to `Saved User 1`, `Saved User 2`, … ; `data.id` = the `sessionId`) plus a final `$new` row named `OAUTH2_NEW_SESSION_TITLE` with icon `OAUTH2_NEW_SESSION_ICON`. Throws when `allowMultiSession` is `false`. |
 | `list_sessions_selection` | Selects an existing session id or `$new`. |
 | `list_devices` | Delegates to `onListSessions` while the current view is `list_sessions`, otherwise to your `onPairListDevices`. |
 | `add_device` | Calls `client.save()` — **the session is only persisted once at least one device is added.** |
@@ -568,7 +574,13 @@ module.exports = class MyBrandOAuth2Token extends OAuth2Token {
 
 `onRepair(socket, device)` reads `OAuth2SessionId` / `OAuth2ConfigId` from the device store (falling back to a random id / the driver config id), reuses or creates the client, and on success does: `device.onOAuth2Uninit()` → write both store values → `client.save()` → `device.oAuth2Client = client` → `device.onOAuth2Init()` → `socket.emit('authorized')`.
 
-**Multi-session manifest.** When `OAUTH2_MULTI_SESSION = true`, add a pair view whose **id is `list_sessions`** using the `list_devices` template as the first step; otherwise the library throws *"Multi-Session is disabled.\nPlease remove the list_devices from your App's manifest or allow Multi-Session support."*
+**Multi-session manifest.** To let the user pick between saved accounts, add a pair view whose **id is `list_sessions`** using the `list_devices` template as the first step. The two settings must agree:
+
+- `list_sessions` view present **and** `OAUTH2_MULTI_SESSION = true` → the account picker works.
+- `list_sessions` view present **but** multi-session left at `false` → the `list_sessions` handler throws *"Multi-Session is disabled.\nPlease remove the list_devices from your App's manifest or allow Multi-Session support."* (The library tracks the active view in `currentViewId`, which starts at `'list_sessions'`, so this also fires if anything requests `list_devices` before the first `showView`.)
+- No `list_sessions` view → the first `showView` moves `currentViewId` off `list_sessions`, so `list_devices` goes straight to your `onPairListDevices` and nothing throws.
+
+Independently of the manifest: whenever `allowMultiSession` is `false` **and** at least one session is already saved, `onPair` selects that first saved session up front, so the `login_oauth2` view immediately emits `authorized` instead of opening a login popup. That is the single-account "already logged in, just add more devices" path — not a bug.
 
 ```json
 {
@@ -602,7 +614,7 @@ module.exports = class MyBrandOAuth2Token extends OAuth2Token {
 | `async onOAuth2Saved()` | Extend me. Fires on the client's `save` event (i.e. after a token refresh). |
 | `async onOAuth2Destroyed()` | Default: `setUnavailable('The session has been revoked. Please re-authorize.')`. |
 | `async onOAuth2Expired()` | Default: `setUnavailable('The session has expired. Please re-authorize.')`. |
-| `async onOAuth2Migrate()` | **Optional**, only define it when migrating a legacy app. Must return `{ sessionId, configId, token, title? }` or the device becomes unavailable with "Migration failed. Please re-authorize.". |
+| `async onOAuth2Migrate()` | **Optional**, only define it when migrating a legacy app. It runs at the top of `onInit` and **only when the store is missing `OAuth2SessionId` or `OAuth2ConfigId`**, so already-migrated devices skip it. Must return `{ sessionId, configId, token, title? }`; a falsy return (or a throw) makes the device unavailable with "Migration failed. Please re-authorize.". |
 | `async onOAuth2MigrateSuccess()` | **Optional**, called after a successful migration (clean up legacy store keys here). |
 
 Required store keys: `OAuth2SessionId` and `OAuth2ConfigId`. Missing either throws `OAuth2Error('Missing OAuth2SessionId' / 'Missing OAuth2ConfigId')` at init — which is exactly what happens if you hand-craft devices without going through `OAuth2Driver#onPairListDevices`.

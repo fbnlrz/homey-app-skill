@@ -1,9 +1,13 @@
 # Homey Apps SDK v3 — JavaScript API Index
 
 Complete signature index of every class documented on <https://apps-sdk-v3.developer.homey.app>
-(69 class pages). Use it to verify that a method exists and what its exact arguments, optionality
+(70 class pages). Use it to verify that a method exists and what its exact arguments, optionality
 and return type are, without a web lookup. Everything below is transcribed from the reference site;
 nothing is inferred.
+
+The reference site hosts 73 pages in total: the 70 class pages indexed here, `index.html`, and two
+non-API tutorial pages (`tutorial-device-capabilities.html`, `tutorial-device-classes.html`) whose
+content is covered by `references/capabilities.md`.
 
 **Two runtime APIs have no page on this reference site:**
 
@@ -120,7 +124,8 @@ module.exports = MyApp;
 
 ### 3.3 `Driver` — [Driver.html](https://apps-sdk-v3.developer.homey.app/Driver.html)
 
-Manages all `Device` instances. Extend and export from `/drivers/<id>/driver.js`. **It is not
+Manages all `Device` instances, which represent all paired devices. Extend and export from
+`/drivers/<id>/driver.js`. Methods prefixed with `on` are meant to be overridden. **It is not
 allowed to overwrite the constructor.**
 
 **Instance properties**
@@ -141,7 +146,7 @@ allowed to overwrite the constructor.**
 | `async onUninit()` | Called when the driver is destroyed. |
 | `onMapDeviceClass(device: Device)` | When this method exists it is called prior to initing the device instance. Return a class that extends `Device`. The passed `device` exists for a single tick and **does not support async methods**. |
 | `onPair(session: PairSession)` | Called when a pair session starts. `session` is a bi-directional socket for communication with the front-end. |
-| `async onPairListDevices() → Promise.<Array.<any>>` | Called when no custom `onPair()` has been defined and the default is used. |
+| `async onPairListDevices() → Promise.<Array.<any>>` | Called when no custom `onPair()` has been defined and the default is used. Simple drivers should override this to provide a list of devices ready to be paired. |
 | `async ready() → Promise.<void>` | Resolves when the Driver is ready (`Driver#onInit` has been run). |
 
 ```javascript
