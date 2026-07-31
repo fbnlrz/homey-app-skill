@@ -1,133 +1,184 @@
 ---
 name: homey-app
 description: >
-  Build, scaffold, debug, and publish apps for the Homey smart home platform using the Homey Apps SDK v3.
-  Use this skill whenever the user mentions Homey, Homey Pro, Homey Cloud, Homey app development,
-  Homey CLI, Homey Compose, Homey Flow cards, Homey device drivers, Homey capabilities, Homey widgets,
-  Homey pairing, or any smart home app development targeting the Homey platform. Also trigger when
-  the user wants to integrate a device brand or cloud service with Homey, create Flow automations,
-  build dashboard widgets, or publish to the Homey App Store. Even if the user just says "I want to
-  make a Homey app" or mentions a device they want to control with Homey, use this skill.
+  Build, scaffold, debug, test, and publish apps for the Homey smart home platform with the Homey
+  Apps SDK v3 (Node.js or Python runtime). Use this skill whenever the user mentions Homey, Homey
+  Pro, Homey Cloud, Homey Bridge, Homey Self-Hosted Server, Homey app development, the Homey CLI
+  (`homey app …`), Homey Compose, Flow cards, drivers, devices, capabilities, Homey Energy, dashboard
+  widgets, pairing/repair views, app settings pages, the Homey App Store or its guidelines, or app
+  certification. Also trigger for Homey wireless integrations — Wi-Fi/LAN, mDNS/SSDP discovery,
+  Z-Wave, Zigbee, 433/868 MHz RF, Infrared, Bluetooth LE, Matter/Thread — and for cloud
+  integrations via OAuth2 or webhooks. Even if the user just says "I want to make a Homey app" or
+  names a device or service they want to control with Homey, use this skill.
 ---
 
 # Homey Apps SDK — Skill Guide
 
-This skill helps you build apps for the Homey smart home platform. A Homey app is a Node.js bundle
-that runs locally on Homey Pro (or in the cloud on Homey Cloud). Apps add **Devices**, **Flow cards**,
-**Widgets**, and more to the Homey ecosystem.
+A Homey app is a **Node.js or Python bundle** that runs on Homey — locally on Homey Pro / Homey
+Self-Hosted Server, or in a container on Homey Cloud. Apps add **Devices**, **Flow cards**,
+**Widgets**, **Energy** data and more. Distribution is through the Homey App Store.
 
-## Key Concepts
+Official docs: <https://apps.developer.homey.app> · JS API: <https://apps-sdk-v3.developer.homey.app>
+· Python API: <https://python-apps-sdk-v3.developer.homey.app> · Developer Tools:
+<https://tools.developer.homey.app>
 
-**SDK version**: Always use SDK v3 (`"sdk": 3` in the manifest). SDK v3 is async/await everywhere.
+## Step 1 — Route to the right reference
 
-**Node.js**: As of Homey v12.9.0, all platforms run Node.js 22.
+`references/` holds the deep material. **Read the files relevant to the task before writing code**;
+they contain the complete tables (capabilities, guidelines, CLI flags, CSS variables) that you must
+not reconstruct from memory.
 
-**Homey Compose**: The build system that splits the monolithic `app.json` manifest into smaller
-`*.compose.json` files. Never edit `/app.json` directly — edit the compose files instead.
+| If the task involves… | Read |
+| --- | --- |
+| Manifest fields, app lifecycle, Homey Compose, i18n, permissions, storage | `references/app-and-manifest.md` |
+| Driver/Device classes, lifecycle hooks, device settings, device classes | `references/drivers-and-devices.md` |
+| Which capability to use, capability options, sub-capabilities, custom capabilities | `references/capabilities.md` |
+| Power/energy, Homey Energy, batteries, solar, EV chargers, meters | `references/energy.md` |
+| Pairing, repair, list_devices, login views, custom pair HTML | `references/pairing.md` |
+| App settings page, custom HTML views, Homey CSS styleguide | `references/custom-views-and-settings.md` |
+| Flow triggers/conditions/actions, arguments, autocomplete, tokens | `references/flow-cards.md` |
+| Dashboard widgets, widget settings, widget styling, previews | `references/widgets.md` |
+| Wi-Fi/LAN devices, mDNS-SD / SSDP / MAC discovery | `references/wireless-lan-discovery.md` |
+| Z-Wave drivers, command classes, OTA firmware | `references/wireless-zwave.md` |
+| Zigbee drivers, clusters, OTA firmware | `references/wireless-zigbee.md` |
+| 433/868 MHz RF signals, Infrared remotes | `references/wireless-rf-infrared.md` |
+| Bluetooth LE, Matter, Thread | `references/wireless-ble-matter.md` |
+| OAuth2 login, cloud APIs, webhooks | `references/cloud-oauth-webhooks.md` |
+| `api.js`, app-to-app calls, realtime events | `references/web-api-and-realtime.md` |
+| Images, cameras, videos, LED ring, Insights, notifications, misc managers | `references/advanced-features.md` |
+| Homey CLI commands, validation, debugging, TypeScript, ESM | `references/cli-and-tooling.md` |
+| Writing the app in Python | `references/python-apps.md` |
+| Official Athom libraries, example apps, GitHub Actions CI/CD, ESLint, Sentry | `references/ecosystem-and-ci.md` |
+| App Store guidelines, assets, certification, publishing, updates | `references/publishing.md` |
+| SDK v2→v3, Node 22, compatibility ranges, deprecating things safely | `references/migration-and-breaking-changes.md` |
+| Homey Cloud restrictions and multi-tenancy | `references/homey-cloud.md` |
+| "Does method X exist? What is its exact signature?" | `references/sdk-api-index.md` |
 
-**Three core classes** you extend in every app:
-- `Homey.App` — exported from `/app.js`, instantiated once on app start
-- `Homey.Driver` — exported from `/drivers/<id>/driver.js`, manages pairing and all device instances
-- `Homey.Device` — exported from `/drivers/<id>/device.js`, represents a single paired device
+## Step 2 — Consult the live docs when unsure
 
-**Homey CLI** (`npx homey`) is the primary development tool:
-- `homey app create` — scaffold a new app
-- `homey app run` — run & debug live on a Homey (uninstalls on quit)
-- `homey app install` — install persistently for testing
-- `homey app publish` — publish to the Homey App Store
-- `homey app driver create` — interactively add a driver
-- `homey app flow create` — interactively add a Flow card
-- `homey app validate` — check manifest validity
+Do not guess API names. Two zero-setup ways to check the current official docs:
 
-## Project Structure (Homey Compose)
+1. **Any docs page is available as Markdown** by appending `.md` to its URL, e.g.
+   `https://apps.developer.homey.app/the-basics/devices/capabilities.md`. The full page index is at
+   `https://apps.developer.homey.app/llms.txt`.
+2. **A documentation MCP server** at `https://apps.developer.homey.app/~gitbook/mcp` exposes
+   `searchDocumentation`, `getPage` and `sendFeedback`. If it is not wired into the session, call it
+   over plain HTTP:
+
+```bash
+curl -s -X POST https://apps.developer.homey.app/~gitbook/mcp \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"searchDocumentation","arguments":{"query":"energy cumulative"}}}'
+```
+
+## Platforms & runtimes
+
+| | Homey Pro / Homey Self-Hosted Server | Homey Cloud (Bridge) |
+| --- | --- | --- |
+| `platforms` value | `"local"` | `"cloud"` |
+| Local wireless (Wi-Fi/LAN, Z-Wave, Zigbee, 433 MHz, IR, BLE) | yes | **no** — cloud-connected devices only |
+| App Web API (`api.js`), app-to-app, `homey:manager:api` | yes | **no** |
+| Publishing requirement | normal developer account | **Homey Verified Developer subscription** |
+
+- `"sdk": 3` always. `"runtime": "nodejs"` (default) or `"python"`.
+- Node.js apps run **Node 22** (Homey v12.9.0+). Python apps run **Python 3.14** and need
+  `"pythonVersion"` + `"pythonDependencies"` in the manifest and `"compatibility": ">=13.0.0"`.
+- The **Homey CLI itself needs Node.js v24+**, and **Docker** for Homey Cloud, Homey Pro (Early 2023+)
+  and Homey Self-Hosted Server targets. Homey Pro (2016–2019) has no Docker path — the CLI runs the
+  app remotely (`--remote`) instead.
+- Default to `"platforms": ["local"]` unless the user has a Verified Developer subscription.
+
+## Project structure (Homey Compose)
 
 ```
 com.example.myapp/
 ├─ .homeycompose/
-│  ├─ app.json                         # Core manifest properties
-│  ├─ capabilities/
-│  │  └─ <custom_cap_id>.json          # Custom capability definitions
-│  ├─ flow/
-│  │  ├─ triggers/<id>.json            # App-level Flow trigger cards
-│  │  ├─ conditions/<id>.json          # App-level Flow condition cards
-│  │  └─ actions/<id>.json             # App-level Flow action cards
-│  ├─ discovery/
-│  │  └─ <id>.json                     # LAN discovery strategies (mDNS, SSDP, MAC)
-│  └─ locales/
-│     └─ en.json                       # App-level translations
+│  ├─ app.json                          # Core manifest properties
+│  ├─ capabilities/<id>.json            # Custom capabilities
+│  ├─ screensavers/<id>.json            # LED ring screensavers
+│  ├─ signals/{433,868,ir}/<id>.json    # RF / IR signal definitions
+│  ├─ flow/{triggers,conditions,actions}/<id>.json   # App-level Flow cards
+│  ├─ discovery/<id>.json               # mDNS-SD / SSDP / MAC strategies
+│  ├─ drivers/
+│  │  ├─ templates/<template_id>.json   # Shared driver props ($extends)
+│  │  ├─ settings/<setting_id>.json     # Shared device settings
+│  │  └─ flow/{triggers,conditions,actions}/<id>.json  # Shared driver Flow cards
+│  └─ locales/<locale>.json             # App-level translations
 ├─ assets/
-│  ├─ icon.svg                         # App icon (SVG)
-│  └─ images/
-│     ├─ small.png (250x175)
-│     ├─ large.png (500x350)
-│     └─ xlarge.png (1000x700)
-├─ drivers/
-│  └─ <driver_id>/
-│     ├─ assets/
-│     │  ├─ icon.svg                   # Driver icon
-│     │  └─ images/ (small, large, xlarge)
-│     ├─ device.js                     # Device class
-│     ├─ driver.js                     # Driver class
-│     ├─ driver.compose.json           # Driver manifest
-│     ├─ driver.flow.compose.json      # Driver-specific Flow cards (optional)
-│     └─ driver.settings.compose.json  # Device settings (optional)
-├─ widgets/
-│  └─ <widget_id>/
-│     ├─ public/
-│     │  └─ index.html                 # Widget frontend
-│     ├─ api.js                        # Widget API handlers
-│     ├─ widget.compose.json           # Widget definition
-│     ├─ preview-dark.png              # Widget preview (dark)
-│     └─ preview-light.png             # Widget preview (light)
-├─ locales/
-│  ├─ en.json
-│  └─ nl.json
-├─ settings/
-│  └─ index.html                       # App settings page (optional)
-├─ api.js                              # App Web API (optional, Pro only)
-├─ app.js                              # App class
-├─ env.json                            # Secret environment variables (gitignored!)
-├─ README.txt                          # App Store long description (plain text, no markdown)
-└─ .homeyignore                        # Files to exclude from publishing
+│  ├─ icon.svg
+│  └─ images/{small.png,large.png,xlarge.png}     # 250x175 / 500x350 / 1000x700
+├─ drivers/<driver_id>/
+│  ├─ assets/icon.svg + assets/images/{small,large,xlarge}.png   # 75x75 / 500x500 / 1000x1000
+│  ├─ driver.js  device.js              # (driver.py / device.py for Python)
+│  ├─ driver.compose.json               # Driver manifest
+│  ├─ driver.flow.compose.json          # Driver-scoped Flow cards (optional)
+│  ├─ driver.settings.compose.json      # Device settings (optional)
+│  └─ pair/*.html  repair/*.html        # Custom pairing/repair views (optional)
+├─ widgets/<widget_id>/
+│  ├─ public/index.html                 # Widget frontend
+│  ├─ api.js                            # Widget API handlers
+│  ├─ widget.compose.json
+│  └─ preview-light.png  preview-dark.png
+├─ locales/{en,nl,…}.json
+├─ settings/index.html                  # App settings page (optional)
+├─ api.js                               # App Web API (optional, not on Homey Cloud)
+├─ app.js                               # (app.py for Python)
+├─ env.json                             # Secrets — gitignore this
+├─ .homeychangelog.json                 # Per-version changelog
+├─ .homeyreview.md                      # Extra instructions for `homey app review` (optional)
+├─ README.txt                           # App Store long description (plain text)
+└─ .homeyignore                         # Files excluded from the build
 ```
 
-## How to Use This Skill
+`app.json` in the project root is **generated** — never hand-edit it.
 
-When creating a Homey app, follow this workflow:
+## Standard workflow
 
-1. **Determine the integration type** — Is it a LAN device (Wi-Fi/mDNS/SSDP), cloud API (OAuth2/webhooks),
-   or wireless protocol (Z-Wave, Zigbee, 433MHz, BLE, IR, Matter)?
-2. **Read the relevant reference file** from `references/` for detailed patterns:
-   - `references/app-and-manifest.md` — App class, manifest, settings, environment, i18n, permissions
-   - `references/drivers-and-devices.md` — Driver/Device classes, pairing, capabilities, settings, discovery
-   - `references/flow-cards.md` — Triggers, conditions, actions, arguments, tokens, device Flow cards
-   - `references/widgets.md` — Dashboard widgets, sizing, native CSS variables, frontend/API, previews
-   - `references/wireless-and-cloud.md` — Wi-Fi/LAN discovery, OAuth2, webhooks, Z-Wave, Zigbee, RF/IR, BLE, Matter/Thread, firmware OTA, Homey Cloud
-   - `references/advanced-features.md` — Web API (api.js), realtime, images & image tokens, videos, LED ring, speech/geolocation/clock/NFC, manager map
-   - `references/cli-and-migration.md` — Homey CLI, validation levels, debugging, TypeScript/Python, ESM, Node 22, breaking-changes/migration
-   - `references/publishing.md` — Complete App Store guidelines (1.1–3.4), icons/images, localization, publishing lifecycle, certification checklist
-3. **Scaffold the project** following the Homey Compose structure above
-4. **Write the code** using SDK v3 patterns (async/await, `this.homey.*` managers)
-5. **Validate** with `homey app validate --level=publish`
+1. **Classify the integration**: LAN device (Wi-Fi + mDNS/SSDP/MAC) · cloud API (OAuth2 / webhooks /
+   polling) · wireless protocol (Z-Wave, Zigbee, 433 MHz, IR, BLE, Matter) · virtual/no device.
+2. **Read the matching reference file(s)** from the table above.
+3. **Scaffold**: `homey app create`, then `homey app driver create` / `homey app flow create` /
+   `homey app widget create` / `homey app discovery create`. Prefer the CLI generators over
+   hand-writing compose files — they produce the exact current schema.
+4. **Implement** with SDK v3 patterns (async/await, `this.homey.*`).
+5. **Validate**: `homey app validate --level debug` while developing,
+   `--level publish` before shipping, `--level verified` for Homey Cloud / Verified Developers.
+6. **Run**: `homey app run` (uninstalls on Ctrl+C), `homey app run --clean` to wipe paired devices,
+   `homey app install` to leave it installed.
+7. **Pre-flight the store review**: `homey app review` runs an AI check against the App Store
+   Guidelines and returns `approve` / `request_changes` / `reject` with blockers. Run it before
+   `homey app publish`.
+8. **Ship**: `homey app version <patch|minor|major> --changelog.en "…"` then `homey app publish`,
+   then submit for certification in Developer Tools.
 
-## Scaffolding a New App
+## Minimal scaffolds
 
-When the user asks to create a new Homey app, generate the full file set. At minimum you need:
+### `/.homeycompose/app.json`
 
-- `/.homeycompose/app.json` with id, version, compatibility, sdk, name, description, category, etc.
-- `/app.js` extending `Homey.App`
-- At least one driver with `driver.js`, `device.js`, and `driver.compose.json`
-- `/locales/en.json` for any translated strings
-- `README.txt`
+```json
+{
+  "id": "com.example.myapp",
+  "version": "1.0.0",
+  "compatibility": ">=12.0.0",
+  "sdk": 3,
+  "platforms": ["local"],
+  "name": { "en": "My App" },
+  "description": { "en": "Adds support for Example devices." },
+  "category": "tools",
+  "brandColor": "#1F6FEB",
+  "images": {
+    "small": "/assets/images/small.png",
+    "large": "/assets/images/large.png",
+    "xlarge": "/assets/images/xlarge.png"
+  },
+  "author": { "name": "Jane Doe", "email": "jane@example.com" }
+}
+```
 
-The app ID must be in reverse domain notation (e.g., `com.example.mydevice`). Don't use the **Homey
-or Athom name as the identity** of your id (you can't publish `com.athom.*` or otherwise pass your
-app off as theirs) — but this is *not* a literal substring ban: an id like `com.you.homeyfin` (a
-Jellyfin integration) is fine. **Choose the id carefully: it is effectively permanent** — after the
-first publish, changing the id creates a *new* App Store listing that loses all installs and reviews,
-so pick the final id before you ever publish.
+Categories: `lights`, `video`, `music`, `appliances`, `security`, `climate`, `tools`, `internet`,
+`localization`, `energy`.
 
-### Minimal app.js
+### `/app.js`
 
 ```javascript
 'use strict';
@@ -143,7 +194,7 @@ class MyApp extends Homey.App {
 module.exports = MyApp;
 ```
 
-### Minimal driver.js
+### `/drivers/<id>/driver.js`
 
 ```javascript
 'use strict';
@@ -156,15 +207,20 @@ class MyDriver extends Homey.Driver {
   }
 
   async onPairListDevices() {
-    // Return an array of discovered devices
-    return [];
+    return [
+      {
+        name: 'Example Device',
+        data: { id: 'aa:bb:cc:dd:ee:ff' }, // immutable & unique
+        store: { address: '192.168.1.42' }, // changing properties go here
+      },
+    ];
   }
 }
 
 module.exports = MyDriver;
 ```
 
-### Minimal device.js
+### `/drivers/<id>/device.js`
 
 ```javascript
 'use strict';
@@ -173,106 +229,92 @@ const Homey = require('homey');
 
 class MyDevice extends Homey.Device {
   async onInit() {
-    this.log('MyDevice has been initialized');
-
-    // Register capability listeners
     this.registerCapabilityListener('onoff', async (value) => {
-      // Handle the on/off command
-      this.log('onoff changed to', value);
+      await this.setDeviceState(value);
     });
   }
 
-  async onAdded() {
-    this.log('MyDevice has been added');
-  }
+  async onAdded() {}
 
   async onSettings({ oldSettings, newSettings, changedKeys }) {
-    this.log('MyDevice settings changed');
+    // read new values from newSettings — getSetting() still returns the OLD value here
   }
 
-  async onDeleted() {
-    this.log('MyDevice has been deleted');
-  }
+  async onRenamed(name) {}
+
+  async onDeleted() {}
+
+  async onUninit() {}
 }
 
 module.exports = MyDevice;
 ```
 
-### Minimal driver.compose.json
+### `/drivers/<id>/driver.compose.json`
 
 ```json
 {
   "name": { "en": "My Device" },
   "class": "socket",
-  "capabilities": ["onoff"],
+  "capabilities": ["onoff", "measure_power"],
   "platforms": ["local"],
-  "connectivity": ["cloud"],
+  "connectivity": ["lan"],
+  "images": {
+    "small": "/drivers/my_device/assets/images/small.png",
+    "large": "/drivers/my_device/assets/images/large.png",
+    "xlarge": "/drivers/my_device/assets/images/xlarge.png"
+  },
   "pair": [
-    {
-      "id": "list_devices",
-      "template": "list_devices",
-      "navigation": { "next": "add_devices" }
-    },
-    {
-      "id": "add_devices",
-      "template": "add_devices"
-    }
+    { "id": "list_devices", "template": "list_devices", "navigation": { "next": "add_devices" } },
+    { "id": "add_devices", "template": "add_devices" }
   ]
 }
 ```
 
-## Critical Rules
+## Critical rules
 
-1. **Never edit `/app.json` directly** — it is generated by Homey Compose from `*.compose.json` files.
-   A **fresh Compose-only repo still needs an `app.json` to exist** before the CLI is happy; the CLI
-   generates it on `homey app run/validate/build`. If you hit
-   `ENOENT: no such file or directory, open 'app.json'`, run the app once (or `homey app build`) to
-   generate it — commit a generated stub if needed, but never hand-edit it.
-2. **In `onSettings({ oldSettings, newSettings, changedKeys })`, `this.getSetting()` still returns the
-   OLD value** — settings persist only *after* the handler resolves. Always read new values from the
-   `newSettings` argument (e.g. restart a poll timer from `newSettings.poll_interval`, not
-   `getSetting('poll_interval')`).
-3. **Default `"platforms": ["local"]`** (Homey Pro). Publishing a Homey Cloud app requires an
-   Athom-approved developer account, or `homey app publish` is rejected with *"not eligible to
-   publish apps for Homey Cloud."*
-4. **Never overwrite constructors** on App, Driver, or Device — use `onInit()` instead.
-5. **Use `this.homey.*` for timers** — call `this.homey.setInterval()` / `this.homey.setTimeout()` instead
-   of the global versions, so timers are auto-cleared on app destroy (critical for Homey Cloud multi-tenancy).
-6. **Device `data` must be immutable and unique** — use MAC addresses or serial numbers, never IP addresses.
-   Store changing properties in the device store or settings.
-7. **Always handle promise rejections** — unhandled rejections crash apps on Homey Cloud.
-   Use `.catch(this.error)` for fire-and-forget promises.
-8. **Access managers via `this.homey`** — e.g., `this.homey.flow`, `this.homey.settings`, `this.homey.drivers`.
-9. **App instance from Device/Driver**: `this.homey.app` gives you the App instance.
-10. **Environment variables**: defined in `/env.json`, accessed as `Homey.env.VARIABLE_NAME` (uppercase, string values only).
-11. **Insights is write-only at runtime** — an app cannot read a capability's Insights history back
-    (`ManagerInsights` has no entry-reading method). Keep your own capped buffer if you need history.
-    See `references/drivers-and-devices.md`.
-12. **ESM support**: Homey supports ES modules. See the ESM guide if using `import`/`export` syntax.
+1. **Never edit `/app.json`** — Homey Compose generates it from `.homeycompose/` + `*.compose.json`.
+   A fresh Compose-only repo still needs the file to exist: run `homey app build` (or
+   `run`/`validate`) once to generate it. `ENOENT: no such file or directory, open 'app.json'` means
+   you skipped that step.
+2. **Choose the app `id` before the first publish — it is effectively permanent.** Changing it later
+   creates a *new* App Store listing and loses all installs and reviews. Reverse-domain notation.
+   Do not pass your app off as Athom's (no `com.athom.*`, no Homey/Athom branding as the app's
+   identity).
+3. **In `onSettings({ oldSettings, newSettings, changedKeys })`, `this.getSetting()` still returns
+   the OLD value** — settings persist only after the handler resolves. Read from `newSettings`.
+4. **`device.data` must be immutable and globally unique** — MAC address, serial number, Z-Wave/Zigbee
+   node id. **Never an IP address.** Changing values belong in the device store or settings.
+5. **Use `this.homey.setTimeout` / `setInterval` / `clearInterval`**, not the globals — Homey clears
+   them on app destroy. Leaked timers break Homey Cloud multi-tenancy.
+6. **Never override the constructor** of `Homey.App` / `Driver` / `Device` — use `onInit()`.
+7. **Always handle promise rejections.** Unhandled rejections crash the app (fatal on Homey Cloud).
+   Use `.catch(this.error)` for fire-and-forget.
+8. **Log with `this.log()` / `this.error()`**, never `console.log`.
+9. **Access managers through `this.homey.*`** (`this.homey.flow`, `.settings`, `.drivers`,
+   `.images`, `.cloud`, `.insights`, `.dashboards`, …). From a Device/Driver, `this.homey.app` is the
+   App instance and `this.driver` is its Driver.
+10. **Insights is write-only at runtime** — an app can create logs and entries but cannot read a
+    capability's history back. Keep your own capped buffer if you need history.
+11. **`env.json` holds secrets** (uppercase keys, string values), read via `Homey.env.NAME`. Keep it
+    out of version control; it ships inside the app bundle, so it is not a security boundary.
+12. **Adding a capability to already-paired devices requires a migration** — guard `addCapability()`
+    behind a store flag; never call it unconditionally on every `onInit`.
+13. **Register Flow cards once**, in `App.onInit()` or `Driver.onInit()` — not per device.
+14. **Widgets need `compatibility >=12.3.0`** and Homey 2023+ hardware.
+15. **`homey app validate --level publish` is not certification.** Athom's human review rejects
+    things the validator never checks (icons, images, naming, Flow card titles). Read
+    `references/publishing.md` before submitting, and run `homey app review`.
 
-## Homey Cloud Considerations
+## Common patterns
 
-> **Publishing to Homey Cloud requires an Athom-approved (Verified) developer account** — intended
-> for companies/brands. Regular developers should keep `"platforms": ["local"]` (Homey Pro only);
-> otherwise `homey app publish` fails with *"not eligible to publish apps for Homey Cloud."*
+### Polling a cloud API
 
-When targeting Homey Cloud (`"platforms": ["local", "cloud"]`, approved accounts only):
-- No local Wi-Fi (no mDNS/SSDP/MAC discovery)
-- No App Web API (`api.js`) — so no LAN `http.createServer` (see the settings-page file-delivery note)
-- No app-to-app communication
-- No `homey:manager:api` permission
-- Must handle multi-tenancy: no global state, use `this.homey.*` for timers
-- Apps run in Docker; `homey app run` requires Docker for cloud testing
-- Unhandled promise rejections will crash the app
-
-## Quick Reference: Common Patterns
-
-### Polling a Cloud API
 ```javascript
 async onInit() {
   this.pollInterval = this.homey.setInterval(() => {
-    this.pollDevice().catch(this.error);
-  }, 30000);
+    this.poll().catch(this.error);
+  }, 30_000);
 }
 
 async onUninit() {
@@ -280,33 +322,41 @@ async onUninit() {
 }
 ```
 
-### Setting Capability Values (Device → Homey)
+### Device → Homey (report state)
+
 ```javascript
-await this.setCapabilityValue('measure_temperature', 22.5);
-// For custom boolean capabilities, this auto-triggers Flow cards
+await this.setCapabilityValue('measure_temperature', 22.5).catch(this.error);
 ```
 
-### Listening for Capability Changes (Homey → Device)
+### Homey → device (accept a command)
+
 ```javascript
 this.registerCapabilityListener('target_temperature', async (value, opts) => {
   await this.api.setTemperature(value);
 });
 ```
 
-### Firing a Flow Trigger
+### Firing a device Flow trigger
+
 ```javascript
-// In app.js onInit():
-const myTrigger = this.homey.flow.getDeviceTriggerCard('my_event');
-// Later, from a device:
+// Driver.onInit()
+this.myTrigger = this.homey.flow.getDeviceTriggerCard('my_event');
+
+// Device
 await this.driver.myTrigger.trigger(this, { token_key: 'value' }, {});
 ```
 
-### Using Device Discovery (mDNS)
-Read `references/wireless-and-cloud.md` for the full discovery pattern including
-`onDiscoveryResult`, `onDiscoveryAvailable`, and `onDiscoveryAddressChanged`.
+### Availability & warnings
+
+```javascript
+await this.setUnavailable(this.homey.__('errors.unreachable'));
+await this.setAvailable();
+await this.setWarning('Battery low');
+await this.unsetWarning();
+```
 
 ---
 
-For detailed documentation on any topic, read the relevant reference file listed above.
-The official documentation lives at https://apps.developer.homey.app/ and the SDK v3
-API reference at https://apps-sdk-v3.developer.homey.app/.
+Everything above is a summary. For complete tables, schemas and edge cases, open the reference file
+listed in the routing table — and when the docs may have changed, fetch the page as Markdown or ask
+the documentation MCP server.
