@@ -4,7 +4,7 @@ Building Z-Wave drivers for Homey Apps SDK v3: the `zwave` block in `driver.comp
 `homey-zwavedriver` library (`ZwaveDevice`, `ZwaveLightDevice`), configuration parameters, multi-channel
 endpoints, the raw `this.homey.zwave` API and OTA firmware updates.
 
-Related: `references/wireless-zigbee.md`, `references/devices.md`, `references/flow.md`.
+Related: `references/wireless-zigbee.md`, `references/drivers-and-devices.md`, `references/flow-cards.md`.
 
 ## Model
 

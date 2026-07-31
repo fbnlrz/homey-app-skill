@@ -1249,7 +1249,7 @@ To run on Homey Cloud, add `platforms` to the **App, Driver and Flow** manifests
 
 A card's `platforms` must be a **subset** of the App manifest's `platforms`: listing `"cloud"` on a card while the app itself does not list `"cloud"` is a validation error (and the same for `"local"`). `platforms` on the App manifest is itself required to publish a verified app.
 
-Only SDK v3 is supported on Homey Cloud. Validate with `homey app validate --level verified`. See `references/wireless-and-cloud.md` and `references/publishing.md`.
+Only SDK v3 is supported on Homey Cloud. Validate with `homey app validate --level verified`. See `references/homey-cloud.md` and `references/publishing.md`.
 
 ## 13. Internationalization of card strings
 

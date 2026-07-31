@@ -2,7 +2,7 @@
 
 How a Homey app authenticates against a manufacturer's Web API (OAuth2 through Athom's callback relay) and how it receives realtime push updates from that API (webhooks through Athom's forwarding service). Both exist because Homey sits behind the user's NAT and has no public, static URL.
 
-Related: `references/pairing-and-views.md` (pair/repair sessions and system views), `references/wireless-and-cloud.md` (local discovery, Z-Wave/Zigbee/BLE/RF), `references/homey-cloud.md` (Bridge/Cloud platform restrictions).
+Related: `references/pairing.md` (pair/repair sessions and system views), `references/wireless-lan-discovery.md` (local discovery) and the `references/wireless-*.md` files (Z-Wave, Zigbee, BLE, RF), `references/homey-cloud.md` (Bridge/Cloud platform restrictions).
 
 ---
 

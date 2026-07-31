@@ -6,7 +6,7 @@ strategies (`mdns-sd`, `ssdp`, `mac`), their JSON manifests, the `Device` discov
 
 Siblings: `references/drivers-and-devices.md` (Driver/Device lifecycle, store, settings),
 `references/pairing.md` (pair views, `onPairListDevices`), `references/homey-cloud.md`
-(Bridge restrictions), `references/wireless-and-cloud.md` (OAuth2, webhooks, internet APIs),
+(Bridge restrictions), `references/cloud-oauth-webhooks.md` (OAuth2, webhooks, internet APIs),
 `references/cli-and-tooling.md` (CLI flags), `references/publishing.md` (store guidelines).
 
 ---

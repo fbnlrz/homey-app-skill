@@ -5,7 +5,7 @@ Everything needed to build a Zigbee driver for Homey: the `zigbee` object in `dr
 ZCL layer (`ZCLNode`, `CLUSTER`, `BoundCluster`, custom clusters), the raw Zigbee API, the Zigbee
 Developer Tools + interview workflow, Zigbee OTA firmware updates, and the SDK v2 → v3 migration.
 Siblings: `references/wireless-lan-discovery.md`, `references/drivers-and-devices.md`,
-`references/app-and-manifest.md`, `references/cli-and-migration.md`.
+`references/app-and-manifest.md`, `references/cli-and-tooling.md`.
 
 ---
 

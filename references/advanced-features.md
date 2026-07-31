@@ -3,7 +3,7 @@
 Everything reachable through `this.homey.<manager>` that is not drivers, Flow cards, widgets or wireless.
 Managers are also available on `Driver` and `Device` instances (same `this.homey`) and inside app Web-API handlers (`{ homey }`).
 
-Siblings: `references/flow.md` (Flow tokens & droptokens), `references/devices.md` (capabilities, `capabilitiesOptions.preventInsights`), `references/app-manifest.md` (permissions, `platformLocalRequiredFeatures`), `references/web-api.md` (`this.homey.api`, app-to-app), `references/widgets.md` (`this.homey.dashboards`).
+Siblings: `references/flow-cards.md` (Flow tokens & droptokens), `references/drivers-and-devices.md` (capabilities, `capabilitiesOptions.preventInsights`), `references/app-and-manifest.md` (permissions, `platformLocalRequiredFeatures`), `references/web-api-and-realtime.md` (`this.homey.api`, app-to-app), `references/widgets.md` (`this.homey.dashboards`).
 
 ---
 
@@ -35,7 +35,7 @@ module.exports = App;
 | `this.homey.platform` | runtime property | `'local'` \| `'cloud'` (may be `undefined` on old Homey Pro → assume `'local'`) |
 | `this.homey.platformVersion` | runtime property | `1` \| `2` (may be `undefined` → assume `1`) |
 | `this.homey.platformFeatures` | runtime property | `Array.<string>` of supported features |
-| `this.homey.hasFeature(feature)` | runtime method, since Homey **v12.7.1** | `speaker`, `ledring`, `nfc`, `camera-streaming`, `matter` (also `ble-advertisements`, see `references/wireless.md`) |
+| `this.homey.hasFeature(feature)` | runtime method, since Homey **v12.7.1** | `speaker`, `ledring`, `nfc`, `camera-streaming`, `matter` (also `ble-advertisements`, see `references/wireless-ble-matter.md`) |
 | `platformLocalRequiredFeatures` | App Manifest array | `nfc`, `ledring`, `speaker`, `matter` — makes the app **uninstallable** on Homey Pros lacking any listed feature |
 | `permissions` | App Manifest array | see the permission column of the quick-map in §7 |
 
@@ -1063,7 +1063,7 @@ class App extends Homey.App {
 module.exports = App;
 ```
 
-**Gotcha — app-to-app requires the `homey:app:<appId>` permission** (e.g. `homey:app:com.athom.example`) and is **not supported on Homey Cloud**, along with the `homey:manager:api` permission and app Web APIs generally. Always check `getInstalled()` (and ideally the version) before calling; `getInstalled()` returns `false` for an app that is installed but disabled or crashed. See `references/web-api.md`.
+**Gotcha — app-to-app requires the `homey:app:<appId>` permission** (e.g. `homey:app:com.athom.example`) and is **not supported on Homey Cloud**, along with the `homey:manager:api` permission and app Web APIs generally. Always check `getInstalled()` (and ideally the version) before calling; `getInstalled()` returns `false` for an app that is installed but disabled or crashed. See `references/web-api-and-realtime.md`.
 
 ---
 

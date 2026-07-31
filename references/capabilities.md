@@ -133,7 +133,7 @@ this.homey.flow.getActionCard('boost').registerRunListener(async ({ device }) =>
 
 `registerReportListener` is **not** a `Homey.Device` method. It belongs to the Zigbee mesh driver of SDK v2 and is
 **deprecated in SDK v3 in favour of a `BoundCluster` implementation** — see
-`references/wireless-and-cloud.md`. Do not call it on a plain `Homey.Device`.
+`references/wireless-zigbee.md`. Do not call it on a plain `Homey.Device`.
 
 ### Adding capabilities to already-paired devices (guarded migration)
 

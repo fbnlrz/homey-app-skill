@@ -2,7 +2,7 @@
 
 Homey Apps can ship custom **widgets**: plain web pages (HTML/CSS/JS) rendered on the user's dashboard, with access to a global injected `Homey` object for talking back to your app. This file covers the widget folder layout, `widget.compose.json`, the `index.html` frontend contract, the widget-scoped `api.js`, widget settings (including the device picker and autocomplete listeners), the complete Homey CSS style library, preview images, and debugging.
 
-Related: `references/app-and-manifest.md` (manifest, compatibility, permissions), `references/drivers-and-devices.md` (device settings, Insights), `references/advanced-features.md` (Web API, custom views), `references/publishing.md` (App Store guidelines), `references/cli-and-migration.md` (CLI).
+Related: `references/app-and-manifest.md` (manifest, compatibility, permissions), `references/drivers-and-devices.md` (device settings, Insights), `references/advanced-features.md` (Web API, custom views), `references/publishing.md` (App Store guidelines), `references/cli-and-tooling.md` (CLI).
 
 ---
 
