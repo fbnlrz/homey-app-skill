@@ -191,7 +191,7 @@ may run on several servers. These rules are mandatory there and good practice ev
   directory; on Homey Cloud apps run in Docker where `/` is the Linux root. Always
   `require('./assets/foo.js')` or `path.join(__dirname, 'myfile.svg')`.
 
-See `references/wireless-and-cloud.md` for the full Homey Cloud restriction list.
+See `references/homey-cloud.md` for the full Homey Cloud restriction list.
 
 ---
 
@@ -461,7 +461,7 @@ Only required when `"runtime": "python"`.
 | `source` | `string` | Source-code URL, must start with `https://`. |
 | `homepage` | `string` | Company/brand/personal page, must start with `https://`. |
 | `support` | `string` | Support URL or e-mail; starts with `https://` or `mailto:`. **Mandatory for Verified Developers.** |
-| `api` | `object` | App Web API routes (`{ handlerName: { method, path, public? } }`). Not available on Homey Cloud — see `references/advanced-features.md`. |
+| `api` | `object` | App Web API routes (`{ handlerName: { method, path, public? } }`). Not available on Homey Cloud — see `references/web-api-and-realtime.md`. |
 | `settings` | `array` | Legacy typed app-settings form (`text`, `password`, `textarea`, `label`, `number`, `slider`, `radio`, `dropdown`, `checkbox`, `group`), still in the JSON schema. The documented way to build an app settings page is `/settings/index.html`. |
 
 ```jsonc
@@ -497,7 +497,8 @@ Donate URLs resolve to `https://paypal.me/<username>`, `https://bunq.me/<usernam
 These do not live in `/.homeycompose/app.json`; Compose generates them into `/app.json` from other
 files: `drivers` (from `drivers/*/driver.compose.json`), `flow`, `capabilities`, `discovery`,
 `signals`, `screensavers`, `widgets`. Schemas are documented in `references/drivers-and-devices.md`,
-`references/flow-cards.md`, `references/widgets.md` and `references/wireless-and-cloud.md`.
+`references/capabilities.md`, `references/flow-cards.md`, `references/widgets.md`,
+`references/wireless-lan-discovery.md` and `references/wireless-rf-infrared.md`.
 
 The CLI injects a few more keys into the generated `/app.json` at run/build time — never write them
 by hand:
@@ -626,11 +627,11 @@ com.athom.example/
 | File / folder | Produces | Schema documented in |
 | --- | --- | --- |
 | `.homeycompose/app.json` | top-level manifest fields | this file |
-| `.homeycompose/capabilities/<id>.json` | `capabilities` | `references/drivers-and-devices.md` |
+| `.homeycompose/capabilities/<id>.json` | `capabilities` | `references/capabilities.md` |
 | `.homeycompose/screensavers/<id>.json` | `screensavers` — registered at runtime with `animation.registerScreensaver('<id>')` | `references/advanced-features.md` |
-| `.homeycompose/signals/{433,868,ir}/<id>.json` | `signals.<frequency>` — used via `this.homey.rf.getSignal433/868/Infrared('<id>')` | `references/wireless-and-cloud.md` |
+| `.homeycompose/signals/{433,868,ir}/<id>.json` | `signals.<frequency>` — used via `this.homey.rf.getSignal433/868/Infrared('<id>')` | `references/wireless-rf-infrared.md` |
 | `.homeycompose/flow/{triggers,conditions,actions}/<id>.json` | app-level Flow cards | `references/flow-cards.md` |
-| `.homeycompose/discovery/<id>.json` | `discovery` strategies | `references/wireless-and-cloud.md` |
+| `.homeycompose/discovery/<id>.json` | `discovery` strategies | `references/wireless-lan-discovery.md` |
 | `.homeycompose/drivers/templates/<id>.json` | reusable driver fragments (`$extends`) | this file |
 | `.homeycompose/drivers/settings/<id>.json` | reusable device-setting fragments (`$extends`) | `references/drivers-and-devices.md` |
 | `.homeycompose/drivers/flow/{triggers,conditions,actions}/<id>.json` | driver Flow cards shared across drivers | `references/flow-cards.md` |
@@ -740,19 +741,101 @@ Driver Flow cards automatically receive a first argument
 `{ "type": "device", "name": "device", "filter": "driver_id=<driver_id>" }` — never declare it
 yourself. See `references/flow-cards.md`.
 
+### Screensavers and signals in Compose
+
+`.homeycompose/screensavers/weather.json` (requires the `homey:manager:ledring` permission):
+
+```json
+{
+  "title": { "en": "Weather", "nl": "Weer" }
+}
+```
+
+The screensaver's `name` becomes the filename (`weather`), unless overridden with `$name`. That name
+is what the runtime registration uses; the user then picks it under *Settings → LED Ring*:
+
+```javascript
+'use strict';
+
+const Homey = require('homey');
+
+class MyApp extends Homey.App {
+
+  async onInit() {
+    const myAnimation = await this.homey.ledring.createAnimation({ options: {}, frames: [] });
+    await myAnimation.registerScreensaver('weather').catch(this.error);
+  }
+
+}
+
+module.exports = MyApp;
+```
+
+RF/IR signal definitions live in `.homeycompose/signals/433/<id>.json`,
+`.homeycompose/signals/868/<id>.json` and `.homeycompose/signals/ir/<id>.json`, becoming
+`signals.433.<id>` etc. and requiring the matching `homey:wireless:*` permission — see
+`references/wireless-rf-infrared.md`.
+
+### Compose locale files
+
+`.homeycompose/locales/<lang>.json` is **deep-merged into** `/locales/<lang>.json`, which Compose
+then rewrites. Extra dot-segments in the filename nest the content: `en.foo.json` lands under `foo`,
+`en.foo.bar.json` under `foo.bar`. Files are merged longest-path-first.
+
+Reserved top-level keys inside a Compose locale file push their translation into the **manifest**
+instead of the locale file — this is how you keep all of one language's strings in a single file:
+
+| Key path | Fills in `app.json` |
+| --- | --- |
+| `$app.name`, `$app.description` | `name.<lang>`, `description.<lang>` |
+| `$capabilities.<id>.{title,titleShort,units}` | `capabilities.<id>.*.<lang>` |
+| `$drivers.<id>.name` | `drivers[].name.<lang>` |
+| `$drivers.<id>.capabilitiesOptions.<cap>.{title,titleShort,units}` | driver `capabilitiesOptions` |
+| `$drivers.<id>.{pair,repair}.<viewId>.options.<key>` | pair/repair view `options` |
+| `$drivers.<id>.settings.<settingId>.{label,hint,units}`, `.values.<valueId>.label` | driver settings (groups are flattened, so use the child setting's id) |
+| `$drivers.<id>.zwave.learnmode.instruction`, `.zwave.associationGroupsOptions.<n>.hint`, `.zwave.multiChannelNodes.<n>.name` | Z-Wave driver strings |
+| `$drivers.<id>.zigbee.learnmode.instruction` | Zigbee driver strings |
+| `$drivers.<id>.matter.learnmode.instruction` | Matter driver strings |
+| `$flow.<type>.<cardId>.{title,titleFormatted,hint}` | Flow card strings |
+| `$flow.<type>.<cardId>.args.<argName>.{title,label,placeholder}`, `.values.<valueId>.title` | Flow card arguments |
+| `$flow.<type>.<cardId>.tokens.<tokenName>.{title,example}` | Flow card tokens |
+| `$widgets.<id>.name`, `.settings.<settingId>.{title,placeholder}`, `.settings.<settingId>.values.<valueId>.title` | Widget strings |
+
+```json
+// /.homeycompose/locales/nl.json
+{
+  "$app": { "name": "Mijn App", "description": "Voegt ondersteuning toe voor Example-apparaten." },
+  "$drivers": { "my_driver": { "name": "Mijn Driver" } },
+  "$flow": { "actions": { "do_something": { "title": "Doe iets" } } },
+  "pair": { "press_button": "Druk op de `pair` knop." }
+}
+```
+
+> **Gotcha:** Compose **overwrites** `/locales/<lang>.json` for every language it touched (the merge
+> is additive, so hand-written keys survive, but the file is reformatted and the `$…` namespaces are
+> consumed). Once you use `.homeycompose/locales/`, author strings there — not in `/locales/`.
+
 ### `/app.json` generation
 
 - `/app.json` is **generated** — never hand-edit it. Edit `.homeycompose/*.json` and
   `*.compose.json` instead.
 - `homey app run`, `homey app install`, `homey app build`, `homey app validate` and
-  `homey app publish` regenerate it.
+  `homey app publish` regenerate it (Compose runs whenever a `.homeycompose/` folder exists).
+- `homey app version <patch|minor|major|x.y.z>` bumps the version in `.homeycompose/app.json` **and**
+  the generated `app.json`.
 - `homey app compose` splits a legacy monolithic `app.json` into the `.homeycompose/` layout
-  (existing files are preserved) — only useful for apps that predate Homey Compose.
+  (existing files are preserved, and it refuses to run with uncommitted git changes) — only useful
+  for apps that predate Homey Compose.
+- If `.homeycompose/` exists but `.homeycompose/app.json` does not, the CLI warns
+  ("Could not find a Homey Compose app.json manifest!") and keeps using the root `app.json` as the
+  manifest source.
 
 > **Gotcha — `ENOENT: no such file or directory, open 'app.json'` on a fresh Compose-only repo.**
-> If the repository was committed without the generated `/app.json` (e.g. it is in `.gitignore`), the
-> CLI cannot bootstrap. Run `homey app build` (or `run` / `validate`) once to generate it before
-> anything else works.
+> Compose reads the root `/app.json` **first** and only then overlays `.homeycompose/app.json`, so a
+> missing `/app.json` breaks `homey app build`, `run`, `validate` and `publish` alike — building does
+> **not** bootstrap it. Fix it by committing the generated `app.json` (which is what
+> `homey app create` produces) or by dropping a placeholder `app.json` containing `{}` in the app
+> root before the first Compose run; the next run replaces it with the real generated manifest.
 
 ---
 
@@ -846,13 +929,20 @@ Manifest/compose fields that are translation objects:
 | File | Translation-object fields |
 | --- | --- |
 | `.homeycompose/app.json` | `name`, `description`, `tags` (object of arrays) |
-| `driver.compose.json` | `name` |
-| `.homeycompose/flow/**` and `driver.flow.compose.json` | `title`, `titleFormatted`, `hint`, plus argument `title`/`placeholder` and token `title` |
-| `driver.settings.compose.json` | `label`, `hint`, `units`, and group `label` |
-| `.homeycompose/capabilities/<id>.json` | `title`, `units` |
+| `driver.compose.json` | `name`, `capabilitiesOptions[].{title,titleShort,units}`, `zwave/zigbee/matter.learnmode.instruction`, `zwave.associationGroupsOptions[].hint`, `zwave.multiChannelNodes[].name` |
+| `.homeycompose/flow/**` and `driver.flow.compose.json` | `title`, `titleFormatted`, `hint`, argument `title`/`label`/`placeholder`, argument `values[].title`, token `title`/`example` |
+| `driver.settings.compose.json` | `label`, `hint`, `units`, `values[].label`, and group `label` |
+| `driver.pair.compose.json` / `driver.repair.compose.json` | view `options.*` |
+| `.homeycompose/capabilities/<id>.json` | `title`, `titleShort`, `units` |
 | `.homeycompose/screensavers/<id>.json` | `title` |
+| `widgets/<id>/widget.compose.json` | `name`, setting `title`/`placeholder`, setting `values[].title` |
+| app `settings` array (legacy) | `title`, `hint`, `units` |
 
-Always include at least `en` — it is the fallback.
+Always include at least `en` — the schema requires it in every translation object.
+
+Instead of writing these objects language-by-language in every file, you can keep one file per
+language under `.homeycompose/locales/` and use the `$app` / `$drivers` / `$flow` / `$capabilities` /
+`$widgets` namespaces — see [Compose locale files](#homey-compose).
 
 ### 3. App Store long description — `README.txt`
 
@@ -906,12 +996,16 @@ Custom views translate through the same `/locales/*.json` files, either declarat
 English is always required and is the fallback for every other language. Athom is Dutch and Dutch is
 a large part of the user base, so **`en` + `nl` (+ `de`)** is a sensible minimum translation set.
 
+> **Gotcha:** the validator only checks that a `/locales/<code>.json` filename is a valid ISO-639-1
+> code, not that Homey supports it. `pt.json` therefore passes validation happily and is never shown
+> to any user. Stick to the 13 languages above.
+
 ### Units and temperature
 
 Apps must always work in **Celsius** internally — Homey converts capability values to Fahrenheit
 automatically. For custom capabilities the docs instruct setting the unit to `"°C"` so Homey knows
 the value must be converted (the custom-capability schema field is `units`, see
-`references/drivers-and-devices.md`).
+`references/capabilities.md`).
 
 ### Right-to-left (Arabic)
 
@@ -967,6 +1061,20 @@ not requested, the manager methods that require it throw an error.**
 
 Check at runtime with `this.homey.hasPermission('homey:wireless:ble')`.
 
+### Permission ids accepted by the validator but not documented
+
+The validator's permission table also contains `homey:manager:media` ("Control Homey's Music"),
+`homey:manager:speech-input` ("React to speech"), `homey:wireless:zwave` and `homey:wireless:zigbee`.
+Any other value that does not start with `homey:app:` fails validation with
+`Invalid permission: <id>`.
+
+- `homey:manager:speech-input` warns at `debug`/`publish` level ("the homey:manager:speech-input
+  permission is not supported, please remove any speech input related functionality") and is a **hard
+  error at `--level verified`**.
+- `homey:app:com.athom.homeyscript` is explicitly **forbidden** and fails validation outright.
+- `homey:manager:api` triggers a warning at publish level: the app "will require a more thorough
+  review. It may take longer than usual to review your app."
+
 ### Rules
 
 - **Request only what the app actually needs** — superfluous permissions get the submission rejected.
@@ -990,7 +1098,7 @@ const version = await this.homey.apps.getVersion(otherApp);
 
 `ManagerApps` (`this.homey.apps`) exposes `getInstalled(apiApp)` → `Promise<boolean>` ("installed,
 enabled and running") and `getVersion(apiApp)` → `Promise<string>`. The `ApiApp` client itself
-(requests + realtime events) is documented in `references/advanced-features.md`.
+(requests + realtime events) is documented in `references/web-api-and-realtime.md`.
 
 ---
 
@@ -1124,23 +1232,36 @@ await this.homey.notifications.createNotification({
 ## Gotchas {#gotchas}
 
 - **`ENOENT: no such file or directory, open 'app.json'`** on a fresh Compose-only checkout — the
-  generated `/app.json` is missing. Run `homey app build` (or `run` / `validate`) once. Never
+  generated `/app.json` is missing and Compose reads it *before* `.homeycompose/app.json`, so
+  `build`/`run`/`validate` all fail instead of bootstrapping it. Commit the generated `app.json`
+  (as `homey app create` does) or drop a placeholder `app.json` containing `{}` first. Never
   hand-edit the generated file afterwards.
 - **The app `id` is effectively permanent.** Changing it after the first publish creates a new store
   listing and loses installs and reviews.
 - **Pre-release versions (`1.0.0-rc.1`) are rejected** by validation and publishing.
+- **`brandColor` must be `#RRGGBB` and dark enough** (brightness ≤ 184) — icons render white on it.
+- **`$`-keys never reach `/app.json`.** If a value must survive into the manifest, it cannot be
+  named `$something`.
+- **A driver template that uses `{{driverName}}` breaks any driver without `name.en`.**
+- **Compose rewrites `/locales/*.json`** for every language present in `.homeycompose/locales/`.
+- **A locale filename only has to be valid ISO-639-1**, so an unsupported language passes validation
+  and is silently never used.
 - **`"platforms": ["cloud"]` requires a Homey Verified Developer subscription** and an official
   brand integration; otherwise `homey app publish` fails with *"Your account is not eligible to
   publish apps for Homey Cloud."* Default to `["local"]`.
 - **Adding a permission does not push the update** — apps do not auto-update on Homey when new
   permissions are added.
+- **`homey:app:com.athom.homeyscript` is a forbidden permission**, and `homey:manager:speech-input`
+  is rejected at `--level verified`.
 - **A missing permission makes the manager throw**, it does not silently no-op. Guard with
   `this.homey.hasPermission()` when the feature is optional.
 - **`hasFeature()` requires Homey v12.7.1+**; on older firmware fall back to `platformFeatures` or
   treat the feature as absent.
 - **`platformLocalRequiredFeatures` makes the app uninstallable** on Homey Pros without those
   features — only list a feature the app genuinely cannot work without. Its allowed values
-  (`nfc`, `ledring`, `speaker`, `matter`) are a *subset* of what `hasFeature()` accepts.
+  (`nfc`, `ledring`, `speaker`, `matter`, plus `camera-streaming` in the schema) are a *subset* of
+  what `hasFeature()` accepts, and combining it with `"cloud"` in `platforms` is a hard validation
+  error.
 - **Never override the constructor** of `Homey.App` (or `Driver`/`Device`) — use `onInit()`.
 - **Module-level variables are shared between app instances on Homey Cloud.** Keep state on `this`.
 - **Bare `setTimeout`/`setInterval` leak** across app destroys — always use `this.homey.setTimeout` /
@@ -1168,7 +1289,14 @@ await this.homey.notifications.createNotification({
 - <https://apps.developer.homey.app/the-basics/app/persistent-storage> — Persistent Storage
 - <https://apps.developer.homey.app/advanced/homey-compose> — Homey Compose
 - <https://apps.developer.homey.app/advanced/custom-views/app-settings> — App Settings
+- <https://apps.developer.homey.app/advanced/ledring> — LED Ring & screensavers
+- <https://apps.developer.homey.app/advanced/web-api> — Web API (`api` manifest property)
+- <https://apps.developer.homey.app/wireless/bluetooth> — Bluetooth LE (`ble-advertisements` feature)
 - <https://apps.developer.homey.app/guides/homey-cloud> — Homey Cloud
+- <https://apps.developer.homey.app/guides/using-esm-in-homey-apps> — ESM in Homey apps
 - <https://apps.developer.homey.app/app-store/guidelines> — App Store Guidelines
 - <https://apps-sdk-v3.developer.homey.app/App.html>, `Homey.html`, `SimpleClass.html`,
   `ManagerSettings.html`, `ManagerI18n.html`, `ManagerApps.html`, `ManagerNotifications.html`
+- Validation and Compose behaviour cross-checked against the published `homey-lib`
+  (`assets/app/schema.json`, `assets/app/permissions.json`, `lib/App/index.js`) and the `homey` CLI
+  (`lib/HomeyCompose.js`, `lib/App.js`) packages.

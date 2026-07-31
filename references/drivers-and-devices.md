@@ -283,8 +283,8 @@ Order in practice: pairing → `onAdded()` → `onInit()` on every app start →
 | `getClass()` | `string` | The device's class. |
 | `setClass(deviceClass)` | `Promise<void>` | Set the device's class. **Any Flow that depends on this class will become broken.** |
 | `getAvailable()` | `boolean` | Whether the device is marked available. |
-| `getEnergy()` | `any` | The device's energy info object. |
-| `setEnergy(energy)` | async | Set the device's energy object. See `references/energy.md`. |
+| `getEnergy()` | `any` | The device's energy info object. Returns **only** an override previously set with `setEnergy()`, *not* the `energy` object from `driver.compose.json`. |
+| `setEnergy(energy)` | async | Set the device's energy object. Must be the **complete** configuration — it overwrites all existing properties, and from then on the device permanently ignores `energy` in `driver.compose.json`. See `references/energy.md`. |
 | `getSettings()` | `any` | The full settings object. |
 | `getSetting(key)` | `any` | A single setting value, or `null` when unknown. |
 | `setSettings(settings)` | `Promise<void>` | Set settings; the object may be a **subset**. Does **not** fire `onSettings()`. |
@@ -385,7 +385,8 @@ discovery strategy, Homey manages availability automatically.
 | `setAlbumArtImage(image)` | `Promise<any>` | Set this device's album art. |
 | `setCameraVideo(id, title, video)` | `Promise<any>` | Set a device's camera stream. `id`: unique video id (e.g. `front_door`). `title`: title (e.g. `Front Door`). `video`: a `Video` instance. |
 
-Images come from `this.homey.images.createImage()` (then `setPath()`, `setStream()` or `setURL()`); videos from
+Images come from `this.homey.images.createImage()` (then `setPath()`, `setStream()` or `setUrl()` — note the
+lowercase `rl`; there is no `setURL()`); videos from
 `this.homey.videos.createVideoWebRTC() / createVideoRTSP() / createVideoRTMP() / createVideoHLS() /
 createVideoDASH() / createVideoOther()`. When a device has an image and a video with the **same `id`**, the image is
 used as the background while the video loads. Details: `references/advanced-features.md`.
@@ -475,6 +476,41 @@ async onPairListDevices() {
   }));
 }
 ```
+
+Complete shape of a device object returned from `Driver#onPairListDevices()` or a `list_devices` handler:
+
+```javascript
+{
+  // The name of the device that will be displayed
+  name: 'My Device',
+
+  // Required and unique. A MAC address is good, an IP address is not.
+  data: {
+    id: 'abcd',
+  },
+
+  // Optional: dynamic and persistent storage for your device
+  store: {
+    address: '127.0.0.1',
+  },
+
+  // Optional: initial settings, editable afterwards in the device settings screen
+  settings: {
+    pincode: '1234',
+  },
+
+  // Optional: these overwrite the defaults from the driver manifest
+  icon: '/my_icon.svg',                          // relative to /drivers/<driver_id>/assets/
+  capabilities: ['onoff', 'target_temperature'],
+  capabilitiesOptions: {
+    target_temperature: { min: 5, max: 35 },
+  },
+}
+```
+
+Icons may also be referenced from the `/userdata` folder (e.g. `/userdata/my_icon.svg`) — the only exception to the
+"relative to `/drivers/<driver_id>/assets/`" rule, so apps can upload an icon and reference it during pairing.
+Supported since Homey `v12.3.0`. Full pairing flow: `references/pairing.md`.
 
 ## Device store
 
@@ -568,6 +604,7 @@ The `id` is set automatically from the folder name under `/drivers/`.
 | `$extends` | string \| string[] | no | Compose-only: driver template(s) from `/.homeycompose/drivers/templates/<id>.json`. |
 | `$pairOptions` | object | no | Compose-only: `{ "<viewId>": { …options } }` merged into the matching `pair` view's `options`. |
 | `$repairOptions` | object | no | Compose-only: same, for `repair` views. |
+| `$flow` | object | no | Compose-only: driver-scoped Flow cards. Normally written to `driver.flow.compose.json`; the `device` argument is added automatically. See `references/flow-cards.md`. |
 
 ### `class`
 
@@ -648,7 +685,19 @@ device availability automatically and enables the `Device#onDiscovery*` methods 
 ### `deprecated`
 
 `"deprecated": true` keeps an old driver working for users who already paired it, while hiding it from the 'Add
-Device' list.
+Device' list. The schema's enum allows **only** `true` — writing `"deprecated": false` fails validation; remove the
+key instead.
+
+### `matter`, `zwave`, `zigbee`, `firmwareUpdates`
+
+Extra validation the CLI enforces on wireless drivers:
+
+- A driver with a `matter` object **must** include `matter` in `connectivity`.
+- Matter drivers **cannot** have `driver.js` / `driver.mjs` / `device.js` / `device.mjs` — apps cannot add
+  functionality to Matter devices — and **cannot** define custom `pair` views.
+- `matter.deviceVendorId` and `matter.deviceProductName` must be defined together or not at all.
+- `firmwareUpdates` is only supported on Zigbee or Z-Wave drivers (i.e. the driver also has a `zigbee` or `zwave`
+  object), and every entry in `firmwareUpdates.updates` needs a `changelog` string (or `changelog.en`).
 
 ### Compose templating
 
@@ -778,18 +827,15 @@ range must allow at least that version, otherwise `homey app validate` fails.
 
 ### Virtual classes
 
-Some classes are "container" classes: Homey asks the user which sub-type the device actually is, and the device then
-behaves as that virtual class.
+A device can end up presenting itself as a class other than the driver's declared `class`. Homey exposes this on the
+device object as `virtualClass` (visible in the Homey Web API / `homey list devices` output, where the effective
+class is `device.class || device.virtualClass`). The documented way an app opts into this is the `choose_slave` pair
+template on a `socket` driver: *"When adding the `choose_slave` pair template, the user is presented a `What's
+plugged in?` question."* — the user's answer becomes the device's virtual class.
 
-| Base class | Question shown | Allowed virtual classes |
-| --- | --- | --- |
-| `airtreatment` | What's the type? | `airpurifier`, `dehumidifier`, `diffuser`, `humidifier` |
-| `heater` | What's the type? | `radiator` |
-| `mediaplayer` | What's the type? | `settopbox` |
-| `relay` | What's connected? | `garagedoor`, `sunshade`, `blinds`, `curtain` |
-| `vehicle` | What's the type? | `bicycle`, `car`, `scooter` |
-| `windowcoverings` | What's the type? | `sunshade`, `blinds`, `curtain`, `shutterblinds` |
-| `socket` | Plugged in | `light`, `fan`, `heater`, `coffeemachine`, `kettle`, `tv`, `solarpanel`, `airconditioning`, `airfryer`, `boiler`, `battery`, `cooktop`, `dishwasher`, `dryer`, `evcharger`, `freezer`, `fridge`, `fridge_and_freezer`, `fryer`, `grill`, `heatpump`, `mediaplayer`, `microwave`, `multicooker`, `networkrouter`, `oven`, `washer`, `washer_and_dryer`, `waterpurifier`, `oven_and_microwave` |
+Do not guess which base classes accept which virtual classes; the Apps SDK does not document a mapping, and there is
+no `virtualClass` key in the driver manifest schema. From an app you only ever set `class` (manifest) or
+`Device#setClass()`.
 
 ---
 
@@ -982,6 +1028,9 @@ async onSettings({ oldSettings, newSettings, changedKeys }) {
   ids differently.
 - **Setting ids must be strings.** The JSON schema technically accepts a number, but the CLI's prefix check throws
   `invalid setting id: <x>, must be a string`.
+- **There is no `Device#setSetting()` (singular).** Prose in the official docs links the words "`Device#setSetting()`"
+  to the `setSettings` anchor, but the only method that exists is `setSettings(obj)`, which accepts a subset of
+  settings. Writing `this.setSetting('x', 1)` throws `this.setSetting is not a function` at runtime.
 - **There is no `color` device-setting type.** `color` is a *Flow argument* type (a HEX colour picker) — see
   `references/flow-cards.md`. Device settings only support the types in the table above.
 - **`Driver#getDevice(deviceData)` needs the exact `data` object**, not an id string, and there is no
@@ -990,7 +1039,26 @@ async onSettings({ oldSettings, newSettings, changedKeys }) {
   the store, settings, or LAN discovery. Changing the shape of `data` in a later app version orphans every already
   paired device.
 - **`addCapability()`, `removeCapability()` and `setCapabilityOptions()` are expensive** — call them only when
-  something actually changed, guarded by `hasCapability()`, and never on every `onInit()`.
+  something actually changed, guarded by `hasCapability()`, and never on every `onInit()`. Adding a capability to
+  already-paired devices is a **migration**: gate it behind a store flag so it runs exactly once per device.
+
+  ```javascript
+  async onInit() {
+    if (!this.getStoreValue('migrated_v2')) {
+      if (!this.hasCapability('measure_power')) {
+        await this.addCapability('measure_power');
+      }
+      await this.setStoreValue('migrated_v2', true);
+    }
+  }
+  ```
+
+- **Never overwrite the constructor** of `Homey.Driver` or `Homey.Device` — the SDK explicitly forbids it. Do all
+  setup in `onInit()` and keep instance state as plain properties assigned there.
+- **Register Flow cards once, in `App#onInit()` or `Driver#onInit()`** — never in `Device#onInit()`, which would
+  attach one duplicate run listener per paired device. See `references/flow-cards.md`.
+- **Fire-and-forget promises need `.catch(this.error)`.** An unhandled rejection can take the whole app down (fatal
+  on Homey Cloud), so every un-awaited `setCapabilityValue()` / `setStoreValue()` / `setAvailable()` gets a catch.
 - **`setClass()` and `removeCapability()` break existing Flows** that depend on the old class/capability. Treat both
   as migrations, not routine calls.
 - **Throwing inside `onDiscoveryAvailable()` makes the device unavailable** with the thrown message — that is the
@@ -1011,6 +1079,21 @@ async onSettings({ oldSettings, newSettings, changedKeys }) {
   correctly on app teardown; plain globals leak on Homey Cloud. Clear them in both `onDeleted()` and `onUninit()`.
 - **The device store is also the practical place for a capped rolling history buffer**, because capability Insights
   are write-only from inside the App SDK (see `references/capabilities.md`).
+- **Every driver is instantiated even with zero paired devices.** `Driver#onInit()` always runs, which is why
+  driver-level Flow card registration and pairing work before any device exists. Conversely, never assume
+  `getDevices()` is non-empty — guard array access and `find()` results.
+- **`getCapabilityValue()` returns `null` when the value is unknown**, not `undefined` and not a type-appropriate
+  default. Guard before arithmetic or `.toFixed()`.
+- **`getEnergy()` does not return the manifest's `energy` object** — only an override set with `setEnergy()`. And
+  once `setEnergy()` has been called for a device, later edits to `energy` in `driver.compose.json` stop being
+  applied to it automatically.
+- **`"deprecated": false` is invalid.** The schema enum allows only `true`; delete the key to un-deprecate.
+- **Matter drivers must not ship `driver.js`/`device.js`** and must not define `pair` views — validation fails
+  outright. They also require `connectivity` to include `matter`.
+- **Driver ids allow only letters, numbers, `-` and `_`.** The CLI refuses anything else, and refuses to create a
+  driver whose directory already exists.
+- **Only `images.small` and `images.large` are pixel-validated** (`.png` / `.jpg` / `.jpeg`, checked by extension,
+  magic bytes and exact dimensions). `xlarge` is optional and not size-checked — but ship it correct anyway.
 
 ---
 
@@ -1019,7 +1102,9 @@ async onSettings({ oldSettings, newSettings, changedKeys }) {
 - <https://apps.developer.homey.app/the-basics/devices>
 - <https://apps.developer.homey.app/the-basics/devices/settings>
 - <https://apps.developer.homey.app/the-basics/devices/best-practices>
+- <https://apps.developer.homey.app/the-basics/devices/pairing>
 - <https://apps.developer.homey.app/advanced/homey-compose>
+- <https://apps.developer.homey.app/guides/how-to-breaking-changes>
 - <https://apps.developer.homey.app/wireless/wi-fi/discovery>
 - <https://apps-sdk-v3.developer.homey.app/Driver.html>
 - <https://apps-sdk-v3.developer.homey.app/Device.html>
