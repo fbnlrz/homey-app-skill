@@ -1,23 +1,53 @@
-# Drivers & Devices Reference
+# Drivers & Devices
 
-## Table of Contents
-1. [Driver Class](#driver-class)
-2. [Device Class](#device-class)
-3. [Driver Manifest (driver.compose.json)](#driver-manifest)
-4. [Capabilities](#capabilities)
-5. [Custom Capabilities](#custom-capabilities)
-6. [Device Settings](#device-settings)
-7. [Pairing](#pairing)
-8. [Device Availability](#device-availability)
-9. [Device Store](#device-store)
-10. [Discovery Integration](#discovery-integration)
+Every paired device is a `Device` instance owned by a `Driver` instance. All `Driver` classes of an app are
+instantiated on app start — even when zero devices are paired — because the driver owns pairing and driver-level
+Flow cards. This file covers both class APIs, the `driver.compose.json` manifest, the complete device-class list
+and the device-settings schema. Capabilities live in `references/capabilities.md`, energy in `references/energy.md`,
+pairing/repair in `references/pairing.md`, LAN discovery strategies in `references/wireless-lan-discovery.md`.
+
+## File layout
+
+```
+com.athom.example/
+└─ drivers/
+   └─ <driver_id>/
+      ├─ assets/
+      │  ├─ icon.svg                      # driver icon (fixed location)
+      │  └─ images/{small,large,xlarge}.png
+      ├─ pair/                            # optional custom pairing views (*.html)
+      ├─ repair/                          # optional custom repair views (*.html)
+      ├─ driver.js                        # class extends Homey.Driver
+      ├─ device.js                        # class extends Homey.Device
+      ├─ driver.compose.json              # driver manifest
+      ├─ driver.settings.compose.json     # → drivers[].settings
+      ├─ driver.pair.compose.json         # → drivers[].pair
+      ├─ driver.repair.compose.json       # → drivers[].repair
+      ├─ driver.flow.compose.json         # → driver-scoped Flow cards
+      └─ driver.firmware.compose.json     # → drivers[].firmwareUpdates
+```
+
+TypeScript apps use `driver.mts` / `device.mts`; Python apps `driver.py` / `device.py` with `homey_export = Driver`.
+The `homey` CLI also accepts `driver.mjs` / `driver.cjs` / `device.mjs` / `device.cjs`.
+
+Scaffold a driver interactively (requires Homey Compose; the CLI offers to migrate if the app has none):
+
+```bash
+homey app driver create
+```
+
+The wizard asks for the driver name, driver id, device class (picked from the full class list), capabilities and
+wireless type, then writes `drivers/<driver_id>/driver.compose.json` with `name`, `class`, `capabilities`,
+`platforms`, `connectivity`, `images` (using the `{{driverAssetsPath}}` placeholder), plus `driver.js`, `device.js`
+and the `assets/` + `assets/images/` folders. Matter drivers get no `driver.js`/`device.js` — apps cannot add
+functionality to Matter devices.
 
 ---
 
-## Driver Class
+## Driver class
 
-The `/drivers/<driver_id>/driver.js` file exports a class extending `Homey.Driver`. It manages all
-Device instances for that driver and handles pairing.
+`/drivers/<driver_id>/driver.js` must export a class extending `Homey.Driver`. Methods prefixed with `on` are meant
+to be overridden. **Overwriting the constructor is not allowed** — do initialisation in `onInit()`.
 
 ```javascript
 'use strict';
@@ -27,64 +57,862 @@ const Homey = require('homey');
 class MyDriver extends Homey.Driver {
 
   async onInit() {
-    // Register driver-specific Flow cards if needed
-    this.log('MyDriver initialized');
+    this.log('MyDriver has been initialized');
+
+    const showToastActionCard = this.homey.flow.getActionCard('show_toast');
+    showToastActionCard.registerRunListener(async ({ device, message }) => {
+      await device.createToast(message);
+    });
   }
 
-  // Simple pairing: return list of discovered devices
   async onPairListDevices() {
-    const discoveredDevices = await this.discoverDevices();
-    return discoveredDevices.map(device => ({
-      name: device.name,
-      data: {
-        id: device.serialNumber, // Must be unique and immutable!
+    return [
+      {
+        name: 'Foo Device',
+        data: { id: 'abcd1234' },
       },
-      store: {
-        address: device.ipAddress, // Mutable data goes in store
-      },
-      settings: {
-        pollInterval: 30,
-      },
-    }));
+    ];
   }
 
-  // Advanced pairing: full control over the pair session
-  async onPair(session) {
-    session.setHandler('list_devices', async () => {
-      return this.onPairListDevices();
-    });
-
-    session.setHandler('showView', async (viewId) => {
-      // React to view navigation
-    });
-  }
-
-  // Map device to different Device subclasses based on capabilities
-  onMapDeviceClass(device) {
-    if (device.hasCapability('dim')) {
-      return MyDimmableDevice;
-    }
-    return MyDevice;
-  }
 }
 
 module.exports = MyDriver;
 ```
 
-### Key Driver methods:
-- `onInit()` — Called when the driver is initialized
-- `onPairListDevices()` — Simple pairing: return array of device objects
-- `onPair(session)` — Advanced pairing: full session control
-- `onRepair(session, device)` — Handle device repair
-- `onMapDeviceClass(device)` — Return different Device classes per device
-- `getDevices()` — Get all paired Device instances
-- `getDevice({ id })` — Get a specific device by its data
+### Driver instance properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `this.homey` | `Homey` | The Homey instance of this driver (access to all managers) |
+| `this.manifest` | `any` | The driver's manifest — its `app.json` `drivers[]` entry |
+
+Inherited from `SimpleClass`: `this.log(...args)` (emits `__log`) and `this.error(...args)` (emits `__error`).
+
+### Driver methods
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `onInit()` | `async` | Called when the driver is inited (app start). |
+| `onUninit()` | `async` | Called when the driver is destroyed. |
+| `ready()` | `Promise<void>` | Resolves when the Driver is ready, i.e. `onInit()` has run. |
+| `getDevice(deviceData)` | `Device` | Get a `Device` instance by its `data` object, exactly as provided during pairing. |
+| `getDevices()` | `Array<Device>` | All `Device` instances of this driver. |
+| `getDiscoveryStrategy()` | `DiscoveryStrategy` | The driver's discovery strategy, when `discovery` is set in the manifest. |
+| `onPair(session)` | — | Called when a pair session starts. `session` is a `PairSession` (bi-directional socket to the front-end). See `references/pairing.md`. |
+| `onPairListDevices()` | `Promise<Array<any>>` | Called when no custom `onPair()` is defined and the default is used. Return the list of devices ready to be paired. |
+| `onRepair(session, device)` | — | Similar to `onPair`, but for repairing an already-paired `device`. See `references/pairing.md`. |
+| `onMapDeviceClass(device)` | `class` | When this method exists it is called *before* initing the device instance. Return a class that extends `Device`. |
+
+**Gotcha:** there is no `getDeviceById()` on `Driver` — the only lookups are `getDevice(deviceData)` (needs the exact
+`data` object) and `getDevices()`. To find a device by an arbitrary property, iterate `getDevices()` and compare
+`device.getData()` / `device.getStoreValue()` yourself.
+
+```javascript
+const device = this.getDevices().find((d) => d.getData().id === wantedId);
+```
+
+### onMapDeviceClass — one driver, several Device subclasses
+
+`onMapDeviceClass(device)` receives a **temporary** `Device` instance so you can inspect properties before deciding
+which class to use. That temporary instance **exists for a single tick and does not support async methods** — only
+synchronous getters such as `hasCapability()`, `getData()`, `getStoreValue()`, `getSettings()`.
+
+```javascript
+'use strict';
+
+const Homey = require('homey');
+const MyDevice = require('./device');
+const MyDeviceDim = require('./device-dim');
+
+class MyDriver extends Homey.Driver {
+
+  onMapDeviceClass(device) {
+    if (device.hasCapability('dim')) {
+      return MyDeviceDim;
+    }
+    return MyDevice;
+  }
+
+}
+
+module.exports = MyDriver;
+```
+
+### Reaching drivers from anywhere: ManagerDrivers
+
+`this.homey.drivers` is a `ManagerDrivers` instance, available in `App`, `Driver`, `Device` and API handlers.
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `getDriver(driverId)` | `Driver` | Get a `Driver` instance by its ID, as defined in `app.json` (the folder name under `/drivers/`). |
+| `getDrivers()` | `Object<string, Driver>` | All `Driver` instances keyed by driver ID. |
+
+```javascript
+'use strict';
+
+const Homey = require('homey');
+
+class MyApp extends Homey.App {
+
+  async onInit() {
+    const driver = this.homey.drivers.getDriver('my_driver');
+    await driver.ready();
+
+    for (const device of driver.getDevices()) {
+      this.log('device:', device.getName());
+    }
+
+    for (const [driverId, d] of Object.entries(this.homey.drivers.getDrivers())) {
+      this.log(driverId, d.getDevices().length);
+    }
+  }
+
+}
+
+module.exports = MyApp;
+```
 
 ---
 
-## Device Class
+## Device class
 
-The `/drivers/<driver_id>/device.js` represents a single paired device.
+`/drivers/<driver_id>/device.js` must export a class extending `Homey.Device` (or any custom class returned from
+`Driver#onMapDeviceClass`). Methods prefixed with `on` are meant to be overridden. **Overwriting the constructor is
+not allowed.**
+
+```javascript
+'use strict';
+
+const Homey = require('homey');
+const DeviceApi = require('device-api');
+
+class MyDevice extends Homey.Device {
+
+  async onInit() {
+    this.log('Device init');
+    this.log('Name:', this.getName());
+    this.log('Class:', this.getClass());
+
+    this.registerCapabilityListener('onoff', this.onCapabilityOnoff.bind(this));
+
+    this.pollInterval = this.homey.setInterval(() => {
+      this.poll().catch(this.error);
+    }, this.getSetting('poll_interval') * 1000);
+  }
+
+  async onCapabilityOnoff(value, opts) {
+    // ... set value on the real device, e.g.
+    // await DeviceApi.setState({ on: value });
+    // or throw to report failure back to the user / Flow:
+    // throw new Error('Switching the device failed!');
+  }
+
+  async poll() {
+    const state = await DeviceApi.getState();
+    await this.setCapabilityValue('onoff', state.on);
+    await this.setLastSeenAt();
+  }
+
+  async onAdded() {
+    this.log('Device added');
+  }
+
+  async onRenamed(name) {
+    await DeviceApi.setName(name);
+  }
+
+  async onSettings({ oldSettings, newSettings, changedKeys }) {
+    if (changedKeys.includes('poll_interval')) {
+      this.homey.clearInterval(this.pollInterval);
+      this.pollInterval = this.homey.setInterval(() => {
+        this.poll().catch(this.error);
+      }, newSettings.poll_interval * 1000);
+    }
+  }
+
+  async onDeleted() {
+    this.homey.clearInterval(this.pollInterval);
+  }
+
+  async onUninit() {
+    this.homey.clearInterval(this.pollInterval);
+  }
+
+  // custom method, callable from a driver-level Flow card run listener
+  async createToast(message) {
+    await DeviceApi.createToast(message);
+  }
+
+}
+
+module.exports = MyDevice;
+```
+
+### Device instance properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `this.driver` | `Driver` | The device's driver instance |
+| `this.homey` | `Homey` | The Homey instance of this app |
+
+Plus `this.log()` / `this.error()` from `SimpleClass`.
+
+### Device lifecycle methods
+
+| Method | Async | Called when |
+| --- | --- | --- |
+| `onInit()` | yes | The device is loaded and properties such as name, capabilities and state are available. |
+| `onAdded()` | — | The user adds the device — called just after pairing. |
+| `onRenamed(name)` | — | The user updates the device's name. Use it to sync the name to the device or bridge. `name` is the new name. |
+| `onSettings({ oldSettings, newSettings, changedKeys })` | yes | The user updates the device's settings. Returns `Promise<string \| void>`. |
+| `onDeleted()` | — | The user deleted the device. |
+| `onUninit()` | yes | The device is destroyed (app stop/uninstall/update). |
+| `ready()` | yes | Not an override — returns a `Promise` resolved when the Device is ready (`onInit()` has run). |
+
+Order in practice: pairing → `onAdded()` → `onInit()` on every app start → `onUninit()` on app teardown;
+`onDeleted()` when the user removes the device. Always clear timers created with `this.homey.setInterval()` /
+`this.homey.setTimeout()` in both `onDeleted()` and `onUninit()`.
+
+### Device getters & setters
+
+| Method | Returns | Notes |
+| --- | --- | --- |
+| `getName()` | `string` | The device's name. |
+| `getData()` | `any` | The device's immutable `data` object, as provided during pairing. |
+| `getState()` | `any` | The device's state object — all capability values. |
+| `getClass()` | `string` | The device's class. |
+| `setClass(deviceClass)` | `Promise<void>` | Set the device's class. **Any Flow that depends on this class will become broken.** |
+| `getAvailable()` | `boolean` | Whether the device is marked available. |
+| `getEnergy()` | `any` | The device's energy info object. |
+| `setEnergy(energy)` | async | Set the device's energy object. See `references/energy.md`. |
+| `getSettings()` | `any` | The full settings object. |
+| `getSetting(key)` | `any` | A single setting value, or `null` when unknown. |
+| `setSettings(settings)` | `Promise<void>` | Set settings; the object may be a **subset**. Does **not** fire `onSettings()`. |
+| `getStore()` | `any` | The entire store object. |
+| `getStoreKeys()` | `Array<string>` | All store keys. |
+| `getStoreValue(key)` | `any` | A single store value. |
+| `setStoreValue(key, value)` | `Promise<void>` | Set a store value. |
+| `unsetStoreValue(key)` | `Promise<void>` | Unset a store value. |
+| `setLastSeenAt()` | async | Set the device's `lastSeenAt`. Call it when the device is known to be alive and responding. **Available since Homey v12.6.1.** |
+
+### Device capability methods
+
+| Method | Returns | Notes |
+| --- | --- | --- |
+| `getCapabilities()` | `Array<string>` | The device's capabilities array. |
+| `hasCapability(capabilityId)` | `boolean` | |
+| `addCapability(capabilityId)` | async | **Expensive — use only when needed.** |
+| `removeCapability(capabilityId)` | async | **Expensive.** Any Flow depending on the capability becomes broken. |
+| `getCapabilityValue(capabilityId)` | `any` | The value, or `null` when unknown. |
+| `setCapabilityValue(capabilityId, value)` | `Promise<void>` | Push a value from the device into Homey. |
+| `getCapabilityOptions(capabilityId)` | `any` | |
+| `setCapabilityOptions(capabilityId, options)` | async | **Expensive — use only when needed.** |
+| `registerCapabilityListener(capabilityId, listener)` | — | Invoked when a state change is *requested* (Homey → device). |
+| `registerMultipleCapabilityListener(capabilityIds, listener, timeout)` | — | Debounced multi-capability listener; `timeout` defaults to `250` ms. |
+| `triggerCapabilityListener(capabilityId, value, opts)` | `Promise<any>` | Trigger a capability listener programmatically. |
+
+Callback type definitions:
+
+| Typedef | Signature | Arguments |
+| --- | --- | --- |
+| `Device.CapabilityCallback` | `(value, opts) => Promise<void> \| void` | `value`: the new value. `opts`: object with optional properties, e.g. `{ duration: 300 }`. |
+| `Device.MultipleCapabilityCallback` | `(capabilityValues, capabilityOptions) => Promise<void> \| void` | `capabilityValues`: `{ dim: 0.5 }`. `capabilityOptions`: per-capability options, e.g. `{ dim: { duration: 300 } }`. |
+
+```javascript
+this.registerCapabilityListener('dim', async (value, opts) => {
+  this.log('value', value);
+  this.log('opts', opts);
+});
+
+this.registerMultipleCapabilityListener(
+  ['dim', 'light_hue', 'light_saturation'],
+  async (capabilityValues, capabilityOptions) => {
+    this.log('capabilityValues', capabilityValues);
+    this.log('capabilityOptions', capabilityOptions);
+  },
+  500,
+);
+```
+
+Capability options, sub-capabilities and the full system-capability table: `references/capabilities.md`.
+
+### Device availability & warnings
+
+| Method | Returns | Notes |
+| --- | --- | --- |
+| `setAvailable()` | `Promise<any>` | Set availability to `true`. |
+| `setUnavailable(message)` | `Promise<any>` | Set availability to `false`. `message` is optional — a custom unavailable message, or `null` for the default. |
+| `getAvailable()` | `boolean` | |
+| `setWarning(message)` | `Promise<any>` | Show a warning to the user. **Persistent** — unset it when it no longer applies. Pass `null` to unset. |
+| `unsetWarning()` | `Promise<any>` | Clear the warning. |
+
+While a device is unavailable **all capabilities and Flow actions are prevented**.
+
+```javascript
+'use strict';
+
+const Homey = require('homey');
+const DeviceApi = require('device-api');
+
+class MyDevice extends Homey.Device {
+
+  async onInit() {
+    await this.setUnavailable();
+
+    DeviceApi.on('connected', () => {
+      this.setAvailable().catch(this.error);
+    });
+
+    DeviceApi.on('disconnected', () => {
+      this.setUnavailable('Device is offline').catch(this.error);
+    });
+  }
+
+}
+
+module.exports = MyDevice;
+```
+
+Availability vs warning: `setUnavailable()` blocks interaction (device offline, unreachable, unauthenticated);
+`setWarning()` leaves the device usable but surfaces a message (e.g. a degraded condition). When a driver uses a
+discovery strategy, Homey manages availability automatically.
+
+### Device media methods
+
+| Method | Signature | Description |
+| --- | --- | --- |
+| `setCameraImage(id, title, image)` | `Promise<any>` | Set a device's camera image. `id`: unique image id (e.g. `front`). `title`: display title (e.g. `Front`). `image`: an `Image` instance. |
+| `setAlbumArtImage(image)` | `Promise<any>` | Set this device's album art. |
+| `setCameraVideo(id, title, video)` | `Promise<any>` | Set a device's camera stream. `id`: unique video id (e.g. `front_door`). `title`: title (e.g. `Front Door`). `video`: a `Video` instance. |
+
+Images come from `this.homey.images.createImage()` (then `setPath()`, `setStream()` or `setURL()`); videos from
+`this.homey.videos.createVideoWebRTC() / createVideoRTSP() / createVideoRTMP() / createVideoHLS() /
+createVideoDASH() / createVideoOther()`. When a device has an image and a video with the **same `id`**, the image is
+used as the background while the video loads. Details: `references/advanced-features.md`.
+
+```javascript
+async onInit() {
+  const image = await this.homey.images.createImage();
+  image.setStream(async (stream) => {
+    const res = await fetch(`http://${this.getStoreValue('address')}/snapshot.jpg`);
+    return res.body.pipe(stream);
+  });
+
+  await this.setCameraImage('front', 'Front', image);
+}
+```
+
+### Device discovery methods
+
+Overridden on the `Device` when the driver manifest sets `"discovery": "<strategy_id>"`.
+
+| Method | Description |
+| --- | --- |
+| `onDiscoveryResult(discoveryResult)` | Called when a device has been discovered. Return a **truthy** value when the result belongs to this device, falsy when it doesn't. By default the method matches on the device's `data.id` property. |
+| `onDiscoveryAvailable(discoveryResult)` | Called when the device is found for the first time. Overload to create a connection. **Throwing here makes the device unavailable with the thrown error message.** |
+| `onDiscoveryAddressChanged(discoveryResult)` | Called when the device's address has changed. |
+| `onDiscoveryLastSeenChanged(discoveryResult)` | Called when the device has been found again. |
+
+`DiscoveryResult` exposes `id` (string), `address` (string) and `lastSeen` (Date).
+
+```javascript
+'use strict';
+
+const Homey = require('homey');
+const MyDeviceAPI = require('./lib/MyDeviceAPI');
+
+class MyDevice extends Homey.Device {
+
+  onDiscoveryResult(discoveryResult) {
+    // Return a truthy value here if the discovery result matches your device.
+    return discoveryResult.id === this.getData().id;
+  }
+
+  async onDiscoveryAvailable(discoveryResult) {
+    // Executed once when the device has been found (onDiscoveryResult returned true)
+    this.api = new MyDeviceAPI(discoveryResult.address);
+    await this.api.connect(); // when this throws, the device becomes unavailable
+  }
+
+  onDiscoveryAddressChanged(discoveryResult) {
+    this.api.address = discoveryResult.address;
+    this.api.reconnect().catch(this.error);
+  }
+
+  onDiscoveryLastSeenChanged(discoveryResult) {
+    this.api.reconnect().catch(this.error);
+  }
+
+}
+
+module.exports = MyDevice;
+```
+
+Strategy definitions (`mdns-sd`, `ssdp`, `mac`) live in `/.homeycompose/discovery/<id>.json` — see
+`references/wireless-lan-discovery.md`.
+
+---
+
+## Device identifier: `data`
+
+During pairing you must provide a `data` property: a unique identifier object for the device, **immutable after
+pairing**. It may contain properties of type String, Number or Object. Homey identifies your device by this object
+together with the driver's ID.
+
+> **Only put the essential properties needed to identify a device in `data`.** A MAC address is a good property; an
+> IP address is not, because it can change over time.
+
+Anything that can change over time belongs in memory or in the device **store**.
+
+```javascript
+async onPairListDevices() {
+  const found = await this.discoverDevices();
+  return found.map((d) => ({
+    name: d.name,
+    data: { id: d.macAddress },       // unique + immutable
+    store: { address: d.ipAddress },  // mutable
+    settings: { poll_interval: 30 },
+  }));
+}
+```
+
+## Device store
+
+Persistent storage for device properties that must survive reboots but are not user-configurable. Can be seeded
+during pairing (the `store` property of a paired device object) and read/written afterwards.
+
+```javascript
+'use strict';
+
+const Homey = require('homey');
+const DeviceApi = require('device-api');
+
+class MyDevice extends Homey.Device {
+
+  async onInit() {
+    this.currentAddress = this.getStoreValue('address');
+
+    DeviceApi.on('address-changed', (address) => {
+      this.currentAddress = address;
+      this.setStoreValue('address', address).catch(this.error);
+    });
+  }
+
+}
+
+module.exports = MyDevice;
+```
+
+> Using the store is rare — usually there are better solutions. If users should be able to change a value, use
+> **device settings**. Instead of storing an IP address, use Homey's built-in **LAN discovery**.
+
+---
+
+## driver.compose.json reference
+
+Every `driver.compose.json` is bundled into `app.json` as an entry of the `drivers` array when the app is built.
+The `id` is set automatically from the folder name under `/drivers/`.
+
+```json
+{
+  "name": { "en": "My Driver" },
+  "class": "socket",
+  "capabilities": ["onoff", "dim"],
+  "images": {
+    "small": "/drivers/my_driver/assets/images/small.png",
+    "large": "/drivers/my_driver/assets/images/large.png",
+    "xlarge": "/drivers/my_driver/assets/images/xlarge.png"
+  },
+  "platforms": ["local", "cloud"],
+  "connectivity": ["lan"],
+  "pair": [
+    {
+      "id": "list_devices",
+      "template": "list_devices",
+      "navigation": { "next": "add_devices" }
+    },
+    {
+      "id": "add_devices",
+      "template": "add_devices"
+    }
+  ]
+}
+```
+
+### Field table
+
+| Key | Type | Req. | Description |
+| --- | --- | --- | --- |
+| `id` | string | auto | Driver ID. Set by Homey Compose from the folder name — do not write it yourself. |
+| `name` | i18n object | **yes** | Driver name, e.g. `{ "en": "My Driver" }`. |
+| `class` | string | **yes** | Device class — see the full table below. |
+| `capabilities` | string[] (unique) | **yes** | Capability IDs, e.g. `["onoff", "dim"]`. |
+| `capabilitiesOptions` | object | no | Per-capability overrides, keyed by capability ID. See `references/capabilities.md`. |
+| `images` | object | publish | `{ small, large, xlarge? }`; `small` and `large` are required inside the object. Required to publish an app. |
+| `icon` | string | no | Path to the driver icon SVG. |
+| `platforms` | string[] (unique) | verified | `"local"` and/or `"cloud"`. Default `["local"]`. |
+| `connectivity` | string[] (unique) | verified | How the driver talks to the device — see the allowed-value table. |
+| `energy` | object | no | Power usage/generation metadata. See `references/energy.md`. |
+| `settings` | array | no | Device settings. Normally written to `driver.settings.compose.json` instead. |
+| `pair` | array | no | Pairing views. Normally `driver.pair.compose.json`. See `references/pairing.md`. |
+| `repair` | array | no | Repair views. Normally `driver.repair.compose.json`. |
+| `discovery` | string | no | ID of a discovery strategy defined in the app manifest's `discovery` object. |
+| `deprecated` | `true` | no | Driver keeps working for existing users but disappears from the 'Add Device' list. |
+| `gtin` | string \| string[] (unique) | no | Global Trade Item Number(s) of the supported product. |
+| `firmwareUpdates` | object | no | Zigbee or Z-Wave firmware update definitions. Normally `driver.firmware.compose.json`. |
+| `zwave` | object | no | Z-Wave device definition. See `references/wireless-zwave.md`. |
+| `zigbee` | object | no | Zigbee device definition. See `references/wireless-zigbee.md`. |
+| `matter` | object | no | Matter device definition. See `references/wireless-ble-matter.md`. |
+| `rf433` | object | no | `{ "satelliteMode": boolean }`. See `references/wireless-rf-infrared.md`. |
+| `infrared` | object | no | `{ "satelliteMode": boolean }`. |
+| `$extends` | string \| string[] | no | Compose-only: driver template(s) from `/.homeycompose/drivers/templates/<id>.json`. |
+| `$pairOptions` | object | no | Compose-only: `{ "<viewId>": { …options } }` merged into the matching `pair` view's `options`. |
+| `$repairOptions` | object | no | Compose-only: same, for `repair` views. |
+
+### `class`
+
+`"class": "light"` tells Homey what type of device the driver adds. Classes drive Zone Flow cards ("turn off all
+lights in this zone" picks up any device with class `light` + capability `onoff`) and third-party integrations such
+as Google Assistant ("turn off all lights"). When nothing fits, use `other`. The CLI rejects an unknown class, and
+rejects a class whose `minCompatibility` exceeds the app manifest's `compatibility` range.
+
+### `capabilities`
+
+Capabilities describe the states and actions a device supports. Each capability has a data type — `onoff` is
+`boolean`, `dim` is a `number` between `0` and `1`. Homey ships many system capabilities and generates built-in Flow
+cards for every one of them; app-specific capabilities are declared in the app manifest
+(`/.homeycompose/capabilities/<id>.json`). Full reference: `references/capabilities.md`.
+
+### `images` and `icon`
+
+| Size | Required dimensions (driver) |
+| --- | --- |
+| `small` | 75 × 75 |
+| `large` | 500 × 500 |
+| `xlarge` | 1000 × 1000 |
+
+`small` and `large` are validated (extension, magic bytes, exact pixel size) and both are required once `images` is
+present; `images` itself is required to publish. These are clean marketing pictures of the device shown in the Homey
+App Store — see `references/publishing.md`.
+
+The driver **icon** is always expected at `/drivers/<driver_id>/assets/icon.svg`; the docs state its location cannot
+be specified in the driver manifest. The default Homey Compose driver template nevertheless writes
+`"icon": "{{driverAssetsPath}}/icon.svg"`, which resolves to that same path — so keep the file there regardless of
+whether you set the key.
+
+### `platforms`
+
+`"platforms": ["local", "cloud"]` — the platforms this driver supports.
+
+| Value | Meaning |
+| --- | --- |
+| `local` | Homey Pro (runs locally) |
+| `cloud` | Homey Cloud |
+
+Rules enforced by the CLI:
+
+- Default is `["local"]`; the CLI warns when a driver has no `platforms` while the app manifest includes `cloud`.
+- A driver may not list a platform the app manifest does not list.
+- `platforms` is **required to publish a verified app**.
+
+See `references/homey-cloud.md`.
+
+### `connectivity`
+
+`"connectivity": [ ... ]` — how the driver reaches the device in the real world. Multiple values are allowed, e.g.
+`["infrared", "lan"]` for a TV turned on by infrared and then controlled over Wi-Fi.
+
+| Value | Description |
+| --- | --- |
+| `lan` | Local (Wi-Fi/Ethernet) |
+| `cloud` | Cloud-connected (Wi-Fi/Ethernet) |
+| `ble` | Bluetooth Low Energy |
+| `zwave` | Z-Wave |
+| `zigbee` | Zigbee |
+| `infrared` | Infrared |
+| `rf433` | 433 MHz |
+| `rf868` | 868 MHz |
+| `matter` | Matter (only available on Homey Pro (Early 2023)) |
+
+Rules enforced by the CLI:
+
+- `connectivity` is **required to publish a verified app**.
+- A driver with `platforms` including `cloud` may not use `lan`, `matter` or `rf868`.
+
+### `discovery`
+
+`"discovery": "my_discovery"` must reference a key of the app manifest's `discovery` object (i.e. a file
+`/.homeycompose/discovery/my_discovery.json`); the CLI throws on an unknown id. Linking a strategy makes Homey manage
+device availability automatically and enables the `Device#onDiscovery*` methods and `Driver#getDiscoveryStrategy()`.
+
+### `deprecated`
+
+`"deprecated": true` keeps an old driver working for users who already paired it, while hiding it from the 'Add
+Device' list.
+
+### Compose templating
+
+Shared driver properties go in `/.homeycompose/drivers/templates/<template_id>.json` and are pulled in with
+`$extends`. Templates are merged in array order, then the driver's own keys override them; `capabilitiesOptions` is
+merged per capability rather than replaced.
+
+```json
+// /.homeycompose/drivers/templates/defaults.json
+{
+  "images": {
+    "large": "{{driverAssetsPath}}/images/large.png",
+    "small": "{{driverAssetsPath}}/images/small.png"
+  },
+  "icon": "{{driverAssetsPath}}/icon.svg",
+  "capabilities": [],
+  "class": "other"
+}
+```
+
+```json
+// /drivers/my_driver/driver.compose.json
+{
+  "name": { "en": "My Driver", "nl": "Mijn Driver" },
+  "$extends": ["defaults"]
+}
+```
+
+String placeholders replaced by Homey Compose inside driver JSON:
+
+| Placeholder | Replaced with |
+| --- | --- |
+| `{{driverId}}` | `<driver_id>` |
+| `{{driverPath}}` | `/drivers/<driver_id>` |
+| `{{driverAssetsPath}}` | `/drivers/<driver_id>/assets` |
+| `{{driverName}}` | `name.en` of the driver |
+| `{{driverName<Xx>}}` | `name.<locale>` (falling back to `name.en`), e.g. `{{driverNameNl}}` |
+| `{{zwaveParameterIndex}}` | The nearest enclosing `zwave.index` value |
+
+A driver without a `name` property makes the placeholder pass throw `Missing property name in driver <driver_id>`.
+
+---
+
+## Device classes
+
+The complete list Homey provides. "Min. Homey" is the class's `minCompatibility`: the app manifest's `compatibility`
+range must allow at least that version, otherwise `homey app validate` fails.
+
+| `class` | Title | Min. Homey | Use for |
+| --- | --- | --- | --- |
+| `airconditioning` | Air Conditioner | 12.0.0 | Use this device class for airconditioners, either portable or split type units. |
+| `airfryer` | Air Fryer | 12.0.0 | Use this device class for air fryers. |
+| `airpurifier` | Air Purifier | 12.0.0 | Use this device class for air purifiers. |
+| `airtreatment` | Air Treatment | 12.0.0 | Use this device class for any type of air treatment appliance, when the `dehumidifier`, `humidifier`, `diffuser` or `airpurifier` device class doesn't apply. Could be for combi units. |
+| `amplifier` | Amplifier | — | Use this device class for audio amplifier devices. |
+| `battery` | Battery | 12.0.0 | Use this device for batteries, e.g. home battery storage. |
+| `bicycle` | Bicycle | 12.0.0 | Use this device class for bicycles. |
+| `blinds` | Blinds | — | Use this device class for blinds, both horizontal and vertical. |
+| `boiler` | Boiler | 12.0.0 | Use this device class for any kind of boiler, e.g. heatpump boiler, gas boiler, hot water boiler, central heating boiler. |
+| `bridge` | Bridge | 12.5.0 | Use this device class for bridges or hubs that connect to other devices or ecosystems. |
+| `button` | Button | — | Use this device class for buttons, such as a remote. |
+| `camera` | Camera | — | Security camera |
+| `car` | Car | 12.0.0 | Use this device class for any kind of car. |
+| `coffeemachine` | Coffee Machine | — | Use this device class for coffee machines. |
+| `cooktop` | Cooktop | 12.0.0 | Use this device class for cooktops. |
+| `curtain` | Curtains | — | Use this device class for curtains. |
+| `dehumidifier` | Dehumidifier | 12.0.0 | Use this device class for dehumidifiers. |
+| `diffuser` | Diffuser | 12.0.0 | User this device class for diffusers. |
+| `dishwasher` | Dishwasher | 12.0.0 | Use this device class for dishwashers. |
+| `doorbell` | Doorbell | — | Use this device class for doorbells, usually together with the `button` capability. |
+| `dryer` | Dryer | 12.0.0 | Use this device class for dryers, if it is a combination washer/dryer use 'washer_and_dryer'. |
+| `evcharger` | EV Charger | 12.0.0 | Use this device class for EV chargers. |
+| `fan` | Fan | — | Use this device class for fans that cool your home. |
+| `faucet` | Faucet | 12.0.0 | Use this device class for faucets. |
+| `fireplace` | Fireplace | 12.0.0 | Use this device class for fireplaces. |
+| `freezer` | Freezer | 12.0.0 | Use this device class for any kind of freezer, if it is a frigde/freezer use 'fridge_and_freezer'. |
+| `fridge` | Fridge | 12.0.0 | Use this device class for any kind of fridge, if it is a fridge/freezer use 'fridge_and_freezer'. |
+| `fridge_and_freezer` | Fridge & Freezer | 12.0.0 | Use this device class for any kind of refrigerator that also has a freezer. |
+| `fryer` | Fryer | 12.0.0 | Use this device class for fryers. |
+| `gameconsole` | Game Console | 12.0.0 | Use this device class for any type of game console. |
+| `garagedoor` | Garage Door | — | Use this device class for garage doors, usually together with the `garagedoor_closed` capability. |
+| `grill` | Grill | 12.0.0 | Use this device class for grills. |
+| `heater` | Heater | — | Use this device class for heaters, that warm your home. |
+| `heatpump` | Heat Pump | 12.0.0 | Use this device class for heat pumps. |
+| `homealarm` | Home Security | — | Use this device class for home alarm systems. |
+| `hood` | Hood | 12.0.0 | User this device class for any kind of extractor hood. |
+| `humidifier` | Humidifier | 12.0.0 | Use this device class for humidifiers. |
+| `kettle` | Kettle | — | Use this device class for kettle devices, that can heat water. |
+| `lawnmower` | Lawn Mower | 12.0.0 | Use this device class for lawn mowers. |
+| `light` | Light | — | Use this device class for lights, usually together with the `onoff`, `dim` and `light_*` capabilities. |
+| `lock` | Lock | — | Use this device class for lock devices, usually together with the `locked` and `lock_mode` capabilities. |
+| `mediaplayer` | Media Player | 12.0.0 | Use this device class for media players, when the `Set-top box` device class doesn't apply. |
+| `microwave` | Microwave | 12.0.0 | Use this device class for any kind of microwave, if it is a combi unit use 'oven_and_microwave'. |
+| `mop` | Mop | 12.0.0 | Use this device class for mops, e.g. a robot mop. |
+| `multicooker` | Multicooker | 12.0.0 | Use this device class for multicookers. |
+| `networkrouter` | Network Router | 12.0.0 | Use this device class for routers or modems. |
+| `other` | Other | — | Use this device class for devices that do not fit any other device class. |
+| `oven` | Oven | 12.0.0 | Use this device class for ovens. |
+| `oven_and_microwave` | Combi Microwave Oven | 12.0.0 | Use this device class for combination microwave ovens. |
+| `petfeeder` | Pet Feeder | 12.0.0 | Use this device class for pet feeders. |
+| `pump` | Pump | 12.11.0 | Use this device class for pumps. |
+| `radiator` | Radiator | 12.0.0 | Use this device class for radiators. |
+| `relay` | Relay | — | Use this device class for relays, which are connected to another device. |
+| `remote` | Remote | — | Use this device class for (TV/Sunblind/Keyfob etc.) remotes. |
+| `scooter` | Scooter | 12.0.0 | Use this device class for scooters. |
+| `sensor` | Sensor | — | Use this device class for sensors, e.g. a contact or motion sensor. |
+| `service` | Service | 12.3.0 | Use this device class for devices that are not really physical devices, but (cloud) services. |
+| `settopbox` | Set-top Box | 12.0.0 | Use this device class for set-top boxes. |
+| `shutterblinds` | Shutter Blinds | 12.0.0 | Use this device class for shutter blinds. |
+| `siren` | Siren | 12.0.0 | Use this device class for sirens. |
+| `smokealarm` | Smoke Alarm | 12.0.0 | Use this device class for any smoke- or CO-alarm, could also be used for combo units. |
+| `socket` | Wall Plug | — | Use this device class for sockets (built-in or plug-in socket switches). When adding the `choose_slave` pair template, the user is presented a `What's plugged in?` question. |
+| `solarpanel` | Solar Panel | — | Use this device class for solar panels. |
+| `speaker` | Speaker | — | Use this device class for devices that can play music, usually together with the `speaker_*` capabilities. |
+| `sprinkler` | Sprinkler | 12.0.0 | Use this device class for sprinkler systems. |
+| `sunshade` | Sunshade | — | Use this device class for sunshades (window coverings against the sun). |
+| `thermostat` | Thermostat | — | Use this device class for thermostats, either for the entire home or radiator-mounted, usually together with the `measure_temperature`, `target_temperature` and `thermostat_mode` capabilities. |
+| `tv` | TV | — | Use this device class for TVs. |
+| `vacuumcleaner` | Vacuum Cleaner | — | Use this device class for vacuum cleaners, usually together with the `vacuumcleaner_state` capability. |
+| `vehicle` | Vehicle | 12.0.0 | Use this device class for any type of vehicle, when the `car`, `bicycle` or `scooter` device class doesn't apply. |
+| `washer` | Washing Machine | 12.0.0 | Use this device class for washing machines, if it is a combination washer/dryer use 'washer_and_dryer'. |
+| `washer_and_dryer` | Washer & Dryer | 12.0.0 | Use this device class for any kind of washer and dryer combination. |
+| `waterheater` | Water Heater | 12.0.0 | Use this device class for water heaters. |
+| `waterpurifier` | Water Purifier | 12.0.0 | Use this device class for water purifiers. |
+| `watervalve` | Water Valve | 12.0.0 | Use this device class for mechanical water valves. |
+| `windowcoverings` | Window Coverings | — | Use this device class for window coverings, when the `curtains`, `blinds` or `sunshade` device class doesn't apply. |
+
+### Virtual classes
+
+Some classes are "container" classes: Homey asks the user which sub-type the device actually is, and the device then
+behaves as that virtual class.
+
+| Base class | Question shown | Allowed virtual classes |
+| --- | --- | --- |
+| `airtreatment` | What's the type? | `airpurifier`, `dehumidifier`, `diffuser`, `humidifier` |
+| `heater` | What's the type? | `radiator` |
+| `mediaplayer` | What's the type? | `settopbox` |
+| `relay` | What's connected? | `garagedoor`, `sunshade`, `blinds`, `curtain` |
+| `vehicle` | What's the type? | `bicycle`, `car`, `scooter` |
+| `windowcoverings` | What's the type? | `sunshade`, `blinds`, `curtain`, `shutterblinds` |
+| `socket` | Plugged in | `light`, `fan`, `heater`, `coffeemachine`, `kettle`, `tv`, `solarpanel`, `airconditioning`, `airfryer`, `boiler`, `battery`, `cooktop`, `dishwasher`, `dryer`, `evcharger`, `freezer`, `fridge`, `fridge_and_freezer`, `fryer`, `grill`, `heatpump`, `mediaplayer`, `microwave`, `multicooker`, `networkrouter`, `oven`, `washer`, `washer_and_dryer`, `waterpurifier`, `oven_and_microwave` |
+
+---
+
+## Device settings
+
+Device settings are presented to the user as *Advanced settings* and are defined in
+`/drivers/<driver_id>/driver.settings.compose.json` — a **JSON array** that Homey Compose merges into
+`drivers[].settings`.
+
+```json
+[
+  {
+    "id": "username",
+    "type": "text",
+    "label": { "en": "Username" },
+    "value": "John Doe",
+    "hint": { "en": "The name of the user." }
+  },
+  {
+    "id": "password",
+    "type": "password",
+    "label": { "en": "Password" },
+    "value": "Secret",
+    "hint": { "en": "The password of the user." }
+  }
+]
+```
+
+### Setting types
+
+| `type` | `value` type | Extra keys | Description |
+| --- | --- | --- | --- |
+| `text` | string | `pattern` | Single-line text input. |
+| `password` | string | `pattern` | Same as `text`, but the input is visually hidden. |
+| `textarea` | string | `pattern` | Same as `text`, but allows multi-line input. |
+| `label` | string | — | Read-only text field, for extra explanation or headings. Can only be updated by your app. |
+| `number` | number | `units`, `min`, `max`, `step`, `attr` | Numeric input. |
+| `slider` | number | `units`, `min`, `max`, `step`, `attr` | Numeric input rendered as a slider. |
+| `checkbox` | boolean | — | `true` or `false`. |
+| `dropdown` | string | `values` (**required**) | Pick one of a predefined set of choices. |
+| `radio` | string | `values` (**required**) | Same shape as `dropdown`, rendered as radio buttons. |
+| `group` | — | `label`, `children` (**required**) | Groups multiple settings under a label. Has **no `id`**. |
+
+### Common attributes
+
+| Key | Type | Required | Applies to | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes (except `group`) | all | Setting key used by `getSetting()` / `setSettings()`. Must be a string — the CLI throws for any other type. |
+| `type` | string | yes | all | One of the types above. |
+| `label` | i18n object | yes | all | Label shown to the user, e.g. `{ "en": "Username" }`. |
+| `hint` | i18n object | no | all except `group` | Explanatory text under the setting. |
+| `value` | per type | yes (per docs) | all except `group` | Initial value of the setting. |
+| `pattern` | string | no | `text`, `password`, `textarea` | Regex the input must satisfy, e.g. `"[a-zA-Z]"` to allow only letters. |
+| `units` | i18n object | no | `number`, `slider` | Unit shown next to the value, e.g. `{ "en": "minutes" }`. |
+| `min` / `max` | number | no | `number`, `slider` | Bounds. |
+| `step` | number (≥ 0) | no | `number`, `slider` | Increment. |
+| `attr` | object | no | `number`, `slider` | Alternative nesting for `{ min, max, step }`. |
+| `values` | array | yes | `dropdown`, `radio` | `[{ "id": "heating", "label": { "en": "Heating" } }]` — `id` is a string, `label` is an i18n object. |
+| `children` | array | yes | `group` | Nested settings array (recursive, same schema). |
+| `highlight` | `true` | no | all | Show this setting in the short "Highlighted Settings" list during pairing. |
+| `zwave` | object | no | all | Maps the setting to a Z-Wave configuration parameter: `{ "index": number, "size": 1\|2\|4, "signed"?: boolean }`. See `references/wireless-zwave.md`. |
+| `$extends` | string \| string[] | no | all | Compose-only: extend a settings template from `/.homeycompose/drivers/settings/<id>.json`. |
+| `$id` | string | no | all | Compose-only: the resulting `id` when using `$extends` (defaults to the last template id). |
+
+### Examples per type
+
+```json
+{ "id": "username",  "type": "text",     "label": { "en": "Username" },    "value": "John Doe", "hint": { "en": "The name of the user." } }
+```
+```json
+{ "id": "password",  "type": "password", "label": { "en": "Password" },    "value": "Secret",   "hint": { "en": "The password of the user." } }
+```
+```json
+{ "id": "description", "type": "textarea", "label": { "en": "Description" }, "value": "Initial description", "hint": { "en": "A custom device description." } }
+```
+```json
+{ "id": "duration", "type": "number", "label": { "en": "Duration" }, "value": 3, "min": 0, "max": 5, "units": { "en": "minutes" } }
+```
+```json
+{ "id": "allow_override", "type": "checkbox", "value": true, "label": { "en": "Allow override" } }
+```
+```json
+{
+  "id": "mode",
+  "type": "dropdown",
+  "value": "heating",
+  "label": { "en": "Default mode" },
+  "values": [
+    { "id": "heating", "label": { "en": "Heating" } },
+    { "id": "cooling", "label": { "en": "Cooling" } }
+  ]
+}
+```
+```json
+{ "id": "label", "type": "label", "label": { "en": "IP address" }, "value": "192.168.0.10", "hint": { "en": "The IP address of the device." } }
+```
+```json
+{
+  "type": "group",
+  "label": { "en": "Login details" },
+  "children": [
+    { "id": "username", "type": "text",     "label": { "en": "Username" }, "value": "John Doe" },
+    { "id": "password", "type": "password", "label": { "en": "Password" }, "value": "Secret" }
+  ]
+}
+```
+
+### Highlighted settings
+
+`"highlight": true` promotes a setting into a short list shown while pairing a new device, so users find the key
+options quickly. Be selective — highlighting too many settings makes the highlighted list as hard to navigate as the
+full one.
+
+### Reserved setting-id prefixes
+
+The following prefixes are **reserved by Homey** and **must not** be used at the start of a setting `id`
+(the CLI warns for every violation, including inside `group` children):
+
+```
+homey:   zw_   zb_   mtr_   thread_   zone_   energy_   satellite_mode_   homekit_
+```
+
+### Reading and writing settings
 
 ```javascript
 'use strict';
@@ -94,606 +922,106 @@ const Homey = require('homey');
 class MyDevice extends Homey.Device {
 
   async onInit() {
-    this.log('Device initialized:', this.getName());
+    const settings = this.getSettings();
+    this.log(settings.username, this.getSetting('poll_interval'));
 
-    // Register listeners for user-initiated capability changes
-    this.registerCapabilityListener('onoff', async (value) => {
-      await this.apiClient.setPower(value);
+    await this.setSettings({
+      // only provide the settings you want to change
+      username: 'Jane Doe',
     });
-
-    this.registerCapabilityListener('dim', async (value, opts) => {
-      await this.apiClient.setBrightness(value * 100);
-    });
-
-    // Start polling for device state
-    this.pollInterval = this.homey.setInterval(() => {
-      this.pollDevice().catch(this.error);
-    }, 30000);
   }
 
-  async pollDevice() {
-    const state = await this.apiClient.getState();
-    await this.setCapabilityValue('onoff', state.power).catch(this.error);
-    await this.setCapabilityValue('dim', state.brightness / 100).catch(this.error);
-    await this.setCapabilityValue('measure_power', state.wattage).catch(this.error);
-  }
-
-  async onAdded() {
-    // Device has been added (just after pairing)
-    this.log('Device added');
-  }
-
-  async onSettings({ oldSettings, newSettings, changedKeys }) {
-    // Called when the user updates device settings
-    if (changedKeys.includes('pollInterval')) {
-      this.restartPolling(newSettings.pollInterval);
-    }
-  }
-
-  async onDeleted() {
-    // Device has been deleted, clean up
-    this.homey.clearInterval(this.pollInterval);
-  }
-
-  async onUninit() {
-    // App is being destroyed (Homey Cloud)
-    this.homey.clearInterval(this.pollInterval);
-  }
 }
 
 module.exports = MyDevice;
 ```
 
-### Key Device methods & properties:
-- `onInit()` — Device initialization
-- `onAdded()` — Called right after pairing
-- `onSettings({ oldSettings, newSettings, changedKeys })` — Settings changed by user
-- `onDeleted()` — Device removed by user
-- `onUninit()` — App being destroyed
-- `getName()` — Device name
-- `getData()` — Immutable device data (set during pairing)
-- `getSetting(key)` / `getSettings()` — Read device settings
-- `setSettings({ key: value })` — Update settings programmatically (does NOT call onSettings)
-- `getStoreValue(key)` / `setStoreValue(key, value)` — Persistent key-value store
-- `setCapabilityValue(capId, value)` — Update a capability value (device → Homey)
-- `getCapabilityValue(capId)` — Read current capability value
-- `registerCapabilityListener(capId, listener)` — Listen for capability changes (Homey → device)
-- `registerMultipleCapabilityListener(capIds, listener, timeout)` — Debounced multi-cap listener
-- `hasCapability(capId)` — Check if device has a capability
-- `addCapability(capId)` / `removeCapability(capId)` — Add/remove capabilities (expensive, use sparingly)
-- `setAvailable()` / `setUnavailable(message)` — Control device availability
-- `setWarning(message)` / `unsetWarning()` — Show/clear warning to user
-- `this.driver` — Reference to the Driver instance
-- `this.homey.app` — Reference to the App instance
+### The `onSettings` contract
 
-### Multiple capability listener (debounced):
-```javascript
-this.registerMultipleCapabilityListener(
-  ['dim', 'light_hue', 'light_saturation'],
-  async (capabilityValues, capabilityOptions) => {
-    // capabilityValues = { dim: 0.5, light_hue: 0.8, light_saturation: 1.0 }
-    await this.apiClient.setColor(capabilityValues);
-  },
-  500 // debounce timeout in ms
-);
-```
-
----
-
-## Driver Manifest
-
-`/drivers/<driver_id>/driver.compose.json`:
-
-```json
-{
-  "name": { "en": "My Smart Plug" },
-  "class": "socket",
-  "capabilities": ["onoff", "measure_power", "meter_power"],
-  "capabilitiesOptions": {
-    "measure_power": {
-      "approximated": true
-    }
-  },
-  "platforms": ["local"],
-  "connectivity": ["lan"],
-  "energy": {
-    "approximation": {
-      "usageOn": 5,
-      "usageOff": 0.5
-    }
-  },
-  "pair": [
-    {
-      "id": "list_devices",
-      "template": "list_devices",
-      "navigation": { "next": "add_devices" }
-    },
-    {
-      "id": "add_devices",
-      "template": "add_devices"
-    }
-  ]
-}
-```
-
-### Device classes:
-`light`, `socket`, `vacuumcleaner`, `fan`, `heater`, `thermostat`, `sensor`, `doorbell`,
-`lock`, `windowcoverings`, `tv`, `speaker`, `camera`, `remote`, `button`, `kettle`,
-`coffeemachine`, `homealarm`, `solarpanel`, `other`
-
-### Connectivity options:
-`"cloud"`, `"lan"`, `"infrared"`, `"433"`, `"868"`, `"zigbee"`, `"zwave"`, `"ble"`
-Can be an array for devices using multiple: `["infrared", "lan"]`
-
-### Platforms:
-- `"local"` — Homey Pro (runs locally)
-- `"cloud"` — Homey Cloud (runs in Docker)
-
----
-
-## Capabilities
-
-Capabilities define what a device can do. Homey provides many system capabilities:
-
-### Common system capabilities:
-| Capability | Type | Description |
-|---|---|---|
-| `onoff` | boolean | On/off state |
-| `dim` | number (0-1) | Brightness |
-| `light_hue` | number (0-1) | Color hue |
-| `light_saturation` | number (0-1) | Color saturation |
-| `light_temperature` | number (0-1) | Color temperature |
-| `target_temperature` | number | Target temperature |
-| `measure_temperature` | number | Current temperature (°C) |
-| `measure_humidity` | number | Humidity (%) |
-| `measure_power` | number | Power usage (W) |
-| `meter_power` | number | Energy usage (kWh) |
-| `alarm_motion` | boolean | Motion detected |
-| `alarm_contact` | boolean | Contact sensor |
-| `alarm_battery` | boolean | Low battery |
-| `measure_battery` | number | Battery level (%) |
-| `volume_set` | number (0-1) | Volume level |
-| `volume_mute` | boolean | Muted state |
-| `windowcoverings_state` | enum | up/idle/down |
-| `button` | boolean | Button (stateless trigger) |
-| `speaker_playing` | boolean | Playing state |
-| `locked` | boolean | Lock state |
-
-Full list: https://apps-sdk-v3.developer.homey.app/tutorial-device-capabilities.html
-
-### Capability options (in driver manifest):
-```json
-{
-  "capabilitiesOptions": {
-    "target_temperature": {
-      "min": 5,
-      "max": 35,
-      "step": 0.5
-    },
-    "onoff": {
-      "duration": true
-    },
-    "dim": {
-      "duration": true
-    }
-  }
-}
-```
-
----
-
-## Custom Capabilities
-
-Define in `/.homeycompose/capabilities/<id>.json`:
-
-```json
-{
-  "type": "number",
-  "title": { "en": "Air Quality Index" },
-  "getable": true,
-  "setable": false,
-  "uiComponent": "sensor",
-  "icon": "/assets/aqi.svg",
-  "units": { "en": "AQI" },
-  "min": 0,
-  "max": 500,
-  "step": 1,
-  "insights": true
-}
-```
-
-### Capability types: `boolean`, `number`, `string`, `enum`
-
-### Key properties:
-- `getable` (default true) — Can the value be read by the frontend?
-- `setable` (default true) — Can the value be set by the frontend?
-- `uiComponent` — How it renders: `"sensor"`, `"slider"`, `"toggle"`, `"picker"`, `"button"`, `"thermostat"`, `"color"`, `"media"`, `null`
-- `insights` (boolean) — Log values to Homey Insights charts (write-only at runtime — see below)
-- `units` — Translation object for units display
-- `icon` — **Provide one.** `icon` is technically optional, but a custom capability without one has
-  been observed to show a **dashed placeholder box** in the device view. Point it at a
-  single-solid-path SVG (e.g. `"/assets/aqi.svg"`); like app/driver icons it is tinted monochrome, so
-  follow the same single-path rule (see `references/publishing.md`).
-
-### ⚠️ Insights is WRITE-ONLY at runtime
-
-An app **cannot read a capability's Insights history back at runtime.** `insights: true` lets Homey
-*store* and chart the values, but the App SDK gives you no way to retrieve them:
-
-- `ManagerInsights` (`this.homey.insights`) exposes only `createLog`, `deleteLog`, `getLog`,
-  `getLogs` — it lists and manages logs, but hands back no historical entries.
-- An `InsightsLog` object has only `createEntry(value)` — there is **no `getEntries()`** or any
-  history-read method.
-
-So if you need to render history yourself (a sparkline in a widget, a rolling average, a report),
-**keep your own capped rolling buffer** — sample the value each poll and store a bounded array in
-the device store:
-
-```javascript
-async recordSample(value) {
-  const history = this.getStoreValue('history') || [];
-  history.push({ t: Date.now(), v: value });
-  while (history.length > 96) history.shift();     // cap the buffer (e.g. last 96 samples)
-  await this.setStoreValue('history', history);
-}
-```
-
-(Homey's own Insights history is reachable only through the Homey Web API from outside the app, not
-from the App SDK inside it.)
-
-### Maintenance actions:
-Button capabilities can be maintenance actions (shown in device settings):
-```json
-{
-  "capabilitiesOptions": {
-    "button.reset": {
-      "maintenanceAction": true,
-      "title": { "en": "Reset device" },
-      "desc": { "en": "This will factory reset the device." }
-    }
-  }
-}
-```
-
-### Boolean/number/enum-specific capability fields:
-- Boolean: `uiQuickAction` (bool), `insightsTitleTrue` / `insightsTitleFalse` (translation objects).
-- Number: `units` (translation object; `"°C"` also enables automatic °C→°F conversion), `min`, `max`,
-  `step`, `decimals`.
-- Enum: `values` — array of `{ id, title }`.
-
-### `uiComponent` values:
-`toggle` (single boolean), `slider` (single number), `sensor` (multiple num/enum/string/bool),
-`thermostat` (`target_temperature` + optional `measure_temperature`), `media` (speaker + album art),
-`color` (light hue/sat/temp/mode), `battery` (`measure_battery`/`alarm_battery`), `picker` (single
-enum, labels ≤3 words), `ternary` (three-value enum, e.g. up/idle/down), `button` (one+ booleans;
-stateful if getable+setable), or `null` (hide the component).
-
-### `capabilitiesOptions` (in `driver.compose.json`):
-Override a capability per-driver. Common keys:
-- `title` (override; keep to 2–3 words), `units`, `decimals`, `min`, `max`, `step`,
-  `values` (enum, v12.0.1+).
-- `preventInsights` (bool — disable auto Insights logging), `preventTag` (bool — disable the auto Flow
-  Tag/token).
-- `duration` (bool — passes a duration as the listener's 2nd arg).
-- `zoneActivity` (bool — whether `alarm_*` changes trigger Homey zone activity).
-- `setOnDim` (bool — on a light, send only `dim` without an `onoff` update from Flow).
-- `titleTrue` / `titleFalse`, `insightsTitleTrue` / `insightsTitleFalse` (boolean caps).
-- `maintenanceAction` (bool) + `desc` (translation object) for button maintenance actions.
-- Energy: `approximated` (bool, for `measure_power`), `excludeMin`/`excludeMax` (for `target_power`,
-  must satisfy `excludeMin <= 0 <= excludeMax`).
-- `getable: false` → a stateless `onoff`/`volume_mute` (removes its Flow cards and quick action).
-
-### Sub-capabilities:
-Use a capability more than once with a sub-ID: `"measure_temperature.indoor"`,
-`"measure_temperature.outdoor"`. **Flow cards are NOT auto-generated for sub-capabilities** — declare
-them yourself in `driver.flow.compose.json` if needed.
-
----
-
-## Energy
-
-The `energy` object (in `driver.compose.json`, or dynamically via `Device#setEnergy()`/`getEnergy()`)
-tells Homey how a device consumes/produces power so it appears in Energy.
-
-```json
-{
-  "energy": {
-    "approximation": { "usageOn": 5, "usageOff": 0.5, "usageConstant": 0.2 },
-    "batteries": ["AA", "AA"]
-  }
-}
-```
-
-- **`approximation`** — `{ usageOn, usageOff, usageConstant }` in Watts, for devices without a
-  `measure_power` capability.
-- **`batteries`** — required array for **every battery device** (except home batteries/EVs). Allowed
-  values: `LS14250`, `C`, `AA`, `AAA`, `AAAA`, `A23`, `A27`, `PP3`, `CR123A`, `CR2`, `CR1632`,
-  `CR2032`, `CR2430`, `CR2450`, `CR2477`, `CR3032`, `CR14250`, `INTERNAL`, `OTHER`.
-- **`cumulative`** (bool) — device measures total home/group power (P1 meter, clamp); pair with
-  `cumulativeImportedCapability`/`cumulativeExportedCapability` and
-  `meterPowerImportedCapability`/`meterPowerExportedCapability` (kWh).
-- **`homeBattery`** (v12.3.0+), **`electricCar`** / **`evCharger`** (v12.4.5+) — mark special types.
-
-### Required capabilities by energy type:
-- Instantaneous power → `measure_power` (W). Cumulative energy → `meter_power` / `meter_power.*`
-  (kWh, **must only increase** — a reset loses data).
-- Battery level → `measure_battery` (0–100%); low-battery alert → `alarm_battery`.
-- Solar panel → class `solarpanel`, `measure_power` (positive = generation) + `meter_power` with
-  `meterPowerExportedCapability`.
-- Home battery → class `battery` + `homeBattery: true`, `measure_power` + `measure_battery`.
-- EV charger → class `evcharger` + `evCharger: true`, `measure_power` + `evcharger_charging` +
-  `evcharger_charging_state`.
-- `target_power` (W; positive = consume/charge, negative = produce/discharge), optional
-  `target_power_mode` (`homey`, `device`, or custom).
-
-## Device Settings
-
-Define in `/drivers/<driver_id>/driver.settings.compose.json`:
-
-```json
-[
-  {
-    "type": "group",
-    "label": { "en": "Connection" },
-    "children": [
-      {
-        "id": "pollInterval",
-        "type": "number",
-        "label": { "en": "Poll Interval" },
-        "hint": { "en": "How often to poll the device (seconds)" },
-        "value": 30,
-        "min": 5,
-        "max": 300,
-        "units": { "en": "seconds" }
-      },
-      {
-        "id": "username",
-        "type": "text",
-        "label": { "en": "Username" },
-        "value": ""
-      },
-      {
-        "id": "password",
-        "type": "password",
-        "label": { "en": "Password" },
-        "value": ""
-      }
-    ]
-  }
-]
-```
-
-### Setting types:
-- `text` — Single line text (optional `pattern` regex)
-- `password` — Masked text
-- `textarea` — Multi-line text
-- `number` — Numeric with `min`/`max`/`step`/`units`
-- `checkbox` — Boolean
-- `dropdown` — Select from `values` (`{ id, label }`)
-- `radio` — Radio buttons
-- `label` — Read-only text (app-updatable only)
-- `group` — Group container with `children`
-
-> **Reserved setting-ID prefixes — do not use:** `homey:`, `zw_`, `zb_`, `mtr_`, `thread_`, `zone_`,
-> `energy_`, `satellite_mode_`, `homekit_`. Add `"highlight": true` to surface a setting during
-> pairing. `setSettings()` writes settings **without** firing `onSettings()`.
-
-### Highlighted settings:
-Add `"highlight": true` to show a setting prominently during pairing.
-
-### Handling settings changes:
 ```javascript
 async onSettings({ oldSettings, newSettings, changedKeys }) {
-  if (changedKeys.includes('pollInterval')) {
-    // Validate and apply — read the NEW value from newSettings, NOT getSetting()
-    if (newSettings.pollInterval < 5) {
-      throw new Error('Poll interval must be at least 5 seconds');
-    }
-    this.restartPolling(newSettings.pollInterval);
+  // runs when the USER has changed the device's settings in Homey.
+  // changedKeys: Array<string> of keys changed since the previous version.
+
+  if (newSettings.poll_interval < 5) {
+    // throw to reject: the change is not saved and the message is shown to the user
+    throw new Error('Poll interval must be at least 5 seconds');
   }
+
+  this.restartPolling(newSettings.poll_interval);
+
+  // optionally return a string: it is saved AND a custom message is displayed
+  return this.homey.__('settings.applied');
 }
 ```
 
-Throwing an error in `onSettings()` will revert the settings change and show the error to the user.
-
-> **⚠️ Inside `onSettings`, `this.getSetting()` still returns the OLD value.** Settings are only
-> persisted *after* the handler resolves, so during the handler `getSetting('pollInterval')` /
-> `getSettings()` reflect the pre-change state. Always read new values from the `newSettings`
-> argument — e.g. restart a poll timer from `newSettings.pollInterval`, never from
-> `this.getSetting('pollInterval')`. (Note the inverse case too: programmatic `setSettings()` does
-> **not** fire `onSettings()`.)
+| Aspect | Behaviour |
+| --- | --- |
+| Signature | `async onSettings(event) => Promise<string \| void>` where `event = { oldSettings, newSettings, changedKeys }` |
+| `oldSettings` | object — the old settings object |
+| `newSettings` | object — the new settings object |
+| `changedKeys` | `Array<string>` — keys changed since the previous version |
+| Throwing | The error message is shown to the user and they are asked to change their settings in order to store them; the change is not saved. |
+| Returning a string | Resolves successfully and the returned string is displayed to the user as a custom message. |
+| Triggered by | The **user** changing settings in the Homey app. |
+| **Not** triggered by | `Device#setSettings()` — programmatic changes never fire `onSettings()`. |
 
 ---
 
-## Pairing
+## Gotchas
 
-Each `pair` entry has `id`, `template` (a system template or a custom `.html` view in
-`/drivers/<id>/pair/`), and `navigation` (`{ next, prev }`). **Custom pairing is not possible for
-Zigbee/Z-Wave devices.** A returned device object supports: `name` (required), `data` (required,
-unique — MAC not IP), `store`, `settings`, `icon`, `capabilities`, `capabilitiesOptions`.
-
-### System pairing templates (with per-view options/handlers):
-- `list_devices` — Show discovered devices. Handler `list_devices` (or `onPairListDevices()`); option
-  `singular` (bool, default false); can stream partial results via `session.emit('list_devices', […])`.
-- `add_devices` — Automatically adds the selected devices (terminal after selection).
-- `login_oauth2` — OAuth2 login (options `title`/`subtitle`/`hint`/`button`; see the OAuth2 pattern
-  in `references/wireless-and-cloud.md`).
-- `login_credentials` — Handler `login` receives `{ username, password }`, returns boolean or throws.
-  Options: `title`, `logo`, `usernameLabel` (default "E-mail address"), `usernamePlaceholder`,
-  `passwordLabel`, `passwordPlaceholder`.
-- `pincode` — Handler `pincode` receives the code as a **string array** (`["1","2","3","4"]`), returns
-  boolean. Options: `type` (`number`|`text`, default number), `length` (default 4), `title`, `hint`.
-- `loading` — In a `showView` handler, check `if (view === 'loading')`, do async work, then
-  `await session.nextView()`.
-- `done` — Terminal completion screen.
-
-### Custom pairing-view frontend API (`Homey.*` in a `/drivers/<id>/pair/*.html`):
-`Homey.emit(event, data)` (→ `session.setHandler`), `Homey.on(event, cb)`, `setTitle`/`setSubtitle`,
-`showView`/`nextView`/`prevView`/`getCurrentView`, `createDevice(device)` (device needs `data`+`name`),
-`getZone()`, `getOptions([viewId])`, `setNavigationClose()`, `done()`, `alert`/`confirm`/`popup`,
-`__()` (+ `data-i18n`), `showLoadingOverlay()`/`hideLoadingOverlay()`,
-`getViewStoreValue`/`setViewStoreValue`. Back-end `session.*`: `showView`, `nextView`, `prevView`,
-`done`, `setHandler`, `emit`. (`Homey.createDevice()` is unavailable during **repair**.)
-
-### Simple pairing (list + add):
-```json
-{
-  "pair": [
-    {
-      "id": "list_devices",
-      "template": "list_devices",
-      "navigation": { "next": "add_devices" }
-    },
-    {
-      "id": "add_devices",
-      "template": "add_devices"
-    }
-  ]
-}
-```
-
-Implement `onPairListDevices()` in `driver.js` to return device objects:
-
-```javascript
-async onPairListDevices() {
-  return [
-    {
-      name: 'Living Room Light',
-      data: { id: 'ABC123' },       // Unique, immutable
-      store: { address: '192.168.1.50' },
-      settings: { pollInterval: 30 },
-      capabilities: ['onoff', 'dim'],
-      icon: '/my_icon.svg',         // Relative to /drivers/<id>/assets/
-    }
-  ];
-}
-```
-
-### Advanced pairing with `onPair()`:
-```javascript
-async onPair(session) {
-  let username = '';
-  let password = '';
-
-  session.setHandler('login', async (data) => {
-    username = data.username;
-    password = data.password;
-    const valid = await this.api.authenticate(username, password);
-    if (!valid) throw new Error('Invalid credentials');
-    return true;
-  });
-
-  session.setHandler('list_devices', async () => {
-    const devices = await this.api.getDevices(username, password);
-    return devices.map(d => ({
-      name: d.name,
-      data: { id: d.id },
-    }));
-  });
-}
-```
-
-### Repair:
-Add a `"repair"` array to the driver manifest to allow users to re-authenticate:
-```json
-{
-  "repair": [
-    { "id": "login_oauth2", "template": "login_oauth2" }
-  ]
-}
-```
+- **`getSetting()` / `getSettings()` return the OLD value inside `onSettings()`.** Settings are persisted only
+  *after* the handler resolves, so during the handler the getters still reflect the pre-change state. Always read
+  new values from the `newSettings` argument — restart a poll timer from `newSettings.poll_interval`, never from
+  `this.getSetting('poll_interval')`.
+- **`setSettings()` does NOT call `onSettings()`.** If a programmatic change must also run your side effects, call
+  them explicitly after `await this.setSettings(...)`. Conversely, do not call `setSettings()` from inside
+  `onSettings()` for a key the user just changed — you will fight the pending write.
+- **Reserved setting-id prefixes** (`homey:`, `zw_`, `zb_`, `mtr_`, `thread_`, `zone_`, `energy_`,
+  `satellite_mode_`, `homekit_`) trigger CLI warnings and can collide with Homey's own settings. Namespace your own
+  ids differently.
+- **Setting ids must be strings.** The JSON schema technically accepts a number, but the CLI's prefix check throws
+  `invalid setting id: <x>, must be a string`.
+- **There is no `color` device-setting type.** `color` is a *Flow argument* type (a HEX colour picker) — see
+  `references/flow-cards.md`. Device settings only support the types in the table above.
+- **`Driver#getDevice(deviceData)` needs the exact `data` object**, not an id string, and there is no
+  `getDeviceById()`. Use `getDevices().find(...)` for anything else.
+- **`data` is immutable after pairing.** Never put an IP address, hostname, token or firmware version in it — use
+  the store, settings, or LAN discovery. Changing the shape of `data` in a later app version orphans every already
+  paired device.
+- **`addCapability()`, `removeCapability()` and `setCapabilityOptions()` are expensive** — call them only when
+  something actually changed, guarded by `hasCapability()`, and never on every `onInit()`.
+- **`setClass()` and `removeCapability()` break existing Flows** that depend on the old class/capability. Treat both
+  as migrations, not routine calls.
+- **Throwing inside `onDiscoveryAvailable()` makes the device unavailable** with the thrown message — that is the
+  intended way to report a failed initial connection, not a bug.
+- **Unavailable devices block all capabilities and Flow actions.** Do not use `setUnavailable()` for transient
+  conditions the user can still act on; use `setWarning()` there.
+- **`setWarning()` is persistent** — it survives restarts until `unsetWarning()` (or `setWarning(null)`) is called.
+- **`setLastSeenAt()` requires Homey v12.6.1+**; guard it if the app manifest's `compatibility` allows older
+  versions.
+- **A `cloud` driver cannot declare `lan`, `matter` or `rf868` connectivity** — `homey app validate` fails.
+- **`platforms` defaults to `["local"]`**, and the CLI only warns (does not fail) when a driver omits it in an app
+  that supports `cloud`. A missing `platforms` silently keeps the driver off Homey Cloud.
+- **`platforms` and `connectivity` are both required to publish a *verified* app**, and `images` is required to
+  publish at all.
+- **Driver id = folder name.** Renaming `/drivers/<id>/` changes the driver id and orphans paired devices. Never
+  hand-write `"id"` in `driver.compose.json`.
+- **Timers must use `this.homey.setTimeout` / `setInterval` / `clearTimeout` / `clearInterval`**, which are disposed
+  correctly on app teardown; plain globals leak on Homey Cloud. Clear them in both `onDeleted()` and `onUninit()`.
+- **The device store is also the practical place for a capped rolling history buffer**, because capability Insights
+  are write-only from inside the App SDK (see `references/capabilities.md`).
 
 ---
 
-## Device Availability
+## Sources
 
-```javascript
-// Mark device as unavailable
-await this.setUnavailable('Device is offline');
-
-// Mark device as available again
-await this.setAvailable();
-
-// Show a warning (device still works, but user sees a message)
-await this.setWarning('Battery low');
-await this.unsetWarning();
-```
-
-When using Discovery, availability is managed automatically based on the discovery result.
-
----
-
-## Device Store
-
-Persistent key-value storage for mutable device properties:
-
-```javascript
-// Read
-const address = this.getStoreValue('address');
-const allKeys = this.getStoreKeys();
-
-// Write
-await this.setStoreValue('address', '192.168.1.50');
-
-// Can also be set during pairing in the store property
-```
-
-Use the store sparingly — prefer device settings for user-configurable values and in-memory
-storage for transient data.
-
----
-
-## Discovery Integration
-
-When using LAN discovery (mDNS, SSDP, MAC), the Device class integrates with the discovery system:
-
-```javascript
-class MyDevice extends Homey.Device {
-
-  onDiscoveryResult(discoveryResult) {
-    // Return true if this discovery result matches this device
-    return discoveryResult.id === this.getData().id;
-  }
-
-  async onDiscoveryAvailable(discoveryResult) {
-    // Device found on the network — connect!
-    this.api = new DeviceAPI(discoveryResult.address);
-    await this.api.connect();
-  }
-
-  async onDiscoveryAddressChanged(discoveryResult) {
-    // IP address changed — reconnect
-    await this.api.reconnect(discoveryResult.address);
-  }
-
-  onDiscoveryLastSeenChanged(discoveryResult) {
-    // Device was seen on the network
-    // Useful for updating lastSeenAt
-  }
-}
-```
-
-Link a discovery strategy to a driver by adding `"discovery": "my_discovery_strategy_id"`
-to the driver manifest.
-
----
-
-## Device Best Practices
-
-### Batteries:
-- Use `measure_battery` for a precise level (0–100%) **or** `alarm_battery` for a low-battery alarm —
-  **never both** (they create duplicate UI + Flow cards).
-- Every battery device must declare `energy.batteries` (e.g. `"batteries": ["AAA","AAA"]`).
-
-### Lights:
-- Prefer class `light` (use `socket` only for non-light plugs). Couple `onoff` + `dim` and debounce
-  with `registerMultipleCapabilityListener()`: `dim` 0→nonzero must set `onoff=true`, nonzero→0 must
-  set `onoff=false`; `onoff` is leading in conflicts; use the `setOnDim` option to send only `dim`.
-- Group `light_hue`/`light_saturation`/`light_temperature`/`light_mode` with `onoff`/`dim` to prevent
-  flicker; **colour/temperature changes must not turn the device on**. `light_mode` enum is
-  `"color"` / `"temperature"`. Reflect external (Zigbee/Z-Wave) state changes back into the UI.
-
-### Window coverings:
-- Use class `curtains`/`blinds`/`sunshade` where they apply; `windowcoverings` otherwise.
-- Type 1 (up/down/stop) → `windowcoverings_state`; Type 2 (precise) → `windowcoverings_set`;
-  Type 3 (hybrid) → both. Add `windowcoverings_tilt_up`/`_tilt_down`/`_tilt_set` for tilt.
+- <https://apps.developer.homey.app/the-basics/devices>
+- <https://apps.developer.homey.app/the-basics/devices/settings>
+- <https://apps.developer.homey.app/the-basics/devices/best-practices>
+- <https://apps.developer.homey.app/advanced/homey-compose>
+- <https://apps.developer.homey.app/wireless/wi-fi/discovery>
+- <https://apps-sdk-v3.developer.homey.app/Driver.html>
+- <https://apps-sdk-v3.developer.homey.app/Device.html>
+- <https://apps-sdk-v3.developer.homey.app/ManagerDrivers.html>
+- <https://apps-sdk-v3.developer.homey.app/tutorial-device-classes.html>
