@@ -87,6 +87,11 @@ curl -s -X POST https://apps.developer.homey.app/~gitbook/mcp \
   and Homey Self-Hosted Server targets. Homey Pro (2016–2019) has no Docker path — the CLI runs the
   app remotely (`--remote`) instead.
 - Default to `"platforms": ["local"]` unless the user has a Verified Developer subscription.
+- TypeScript apps: the CLI treats an app as TypeScript when `package.json` has `typescript` in
+  `devDependencies` (not because of `tsconfig.json`) and then runs `npm run build`. CLI v4.5+ scaffolds
+  ESM TypeScript (`"type": "module"`, `app.ts`, `export default`), and `homey app add-types` overwrites
+  `tsconfig.json`. `homey-apps-sdk-v3-types` is now 1.x — see `references/cli-and-tooling.md` §13 and
+  `references/ecosystem-and-ci.md` §6.
 
 ## Project structure (Homey Compose)
 

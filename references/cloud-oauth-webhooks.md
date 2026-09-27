@@ -365,7 +365,10 @@ If you guard the exchange with a "started" flag to avoid double-runs, **reset it
 
 > The recommended way to create a Homey app for an OAuth2 Web API is by using `homey-oauth2app`. This module does all the heavy lifting related to OAuth2, such as logging in, obtaining an access token, refreshing tokens and making API calls. Because no API is the same, the module has been designed specifically to be extended to fit your Web API. Even if your device's Web API differs from the OAuth2 specification, methods can be overloaded to change behaviour.
 
-Requires Homey Apps SDK v3. Current version: **3.7.2**.
+Requires Homey Apps SDK v3. Current version: **3.7.4** (Sep 2026). Use **≥ 3.7.4 when you register more than one
+config**: before it, `setOAuth2Config()` checked the duplicate with `hasConfig(configId)` instead of
+`hasConfig({ configId })`, so it always tested `'default'` — once the default config existed, every further
+`setOAuth2Config({ configId: 'other', … })` threw `Duplicate Config ID`.
 
 ```bash
 npm install homey-oauth2app

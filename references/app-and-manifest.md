@@ -61,7 +61,7 @@ Runtime-specific entry points:
 | --- | --- | --- | --- | --- |
 | JavaScript (CommonJS) | `app.js` | `driver.js`, `device.js` | `api.js` | — |
 | JavaScript (ESM) | `app.mjs` / `app.cjs` | `driver.mjs`, `device.mjs` (or `.cjs`) | `api.mjs` / `api.cjs` | Triggered by `"type": "module"` in `package.json`; Compose then writes `"esm": true`. Requires `"compatibility": ">=12.0.1"` |
-| TypeScript | `app.mts` | `driver.mts`, `device.mts` | `api.mts` | `tsc` `outDir` must be `./.homeybuild` |
+| TypeScript | `app.ts` (docs also show `.mts`) | `driver.ts`, `device.ts` | `api.ts` | `npm run build` (`tsc`), `outDir` must be `./.homeybuild`; detected via `typescript` in `devDependencies` |
 | Python | `app.py` | `driver.py`, `device.py` | `api.py` | `.python_cache/` (pre-compiled deps) |
 
 Additional root files:

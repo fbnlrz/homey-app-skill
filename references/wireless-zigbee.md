@@ -624,6 +624,11 @@ For bulbs and spots. Handles `onoff`, `dim`, `light_mode`, `light_hue`, `light_s
 `light_temperature` out of the box using `levelControl` (`moveToLevelWithOnOff`) and `colorControl`
 (`moveToHueAndSaturation`, `moveToHue`, `moveToColor`, `moveToColorTemperature`).
 
+**homey-zigbeedriver v2.2.18 (Sep 2026) fixes:** after an `onoff` command the device re-reads `currentLevel`
+after 1 s to sync `dim`; that read-back no longer overwrites a `dim` command issued within ±500 ms (flows or the
+Web API setting `onoff` + `dim` together used to snap back to the old level). A transition `duration` that is
+`NaN` or `Infinity` is now ignored (device default) instead of being sent as 0 or clamped to ~2 h.
+
 ```javascript
 'use strict';
 
@@ -670,8 +675,8 @@ Notes:
 
 ## 8. `zigbee-clusters` — ZCL layer
 
-Exports: `Cluster`, `BoundCluster`, `ZCLNode`, `zclTypes`, `zclFrames`, `ZCLDataTypes`,
-`ZCLDataType`, `ZCLStruct`, `ZCLError`, `CLUSTER`, `debug`, `ZIGBEE_PROFILE_ID`,
+Exports: `Cluster`, `BoundCluster`, `ZCLNode`, `Endpoint` (since v3.6.0), `zclTypes`, `zclFrames`,
+`ZCLDataTypes`, `ZCLDataType`, `ZCLStruct`, `ZCLError`, `CLUSTER`, `debug`, `ZIGBEE_PROFILE_ID`,
 `ZIGBEE_DEVICE_ID`, `IAS_ZONE_TYPE`, plus all 47 cluster classes:
 
 `BasicCluster`, `PowerConfigurationCluster`, `DeviceTemperatureCluster`, `IdentifyCluster`,
@@ -755,7 +760,11 @@ zclNode.endpoints[1].clusters.colorControl
   .on('attr.currentSaturation', currentSaturation => { /* … */ });
 ```
 
-### 8.4 `CLUSTER` constants (`zigbee-clusters@3.5.0`)
+### 8.4 `CLUSTER` constants (`zigbee-clusters@3.5.0`, unchanged through 3.8.0)
+
+Attribute additions since 3.5.0: `time` (v3.7.0, see §9.1), `onOffSwitch` (`switchType`
+`toggle|momentary|multifunction`, `switchActions` `onOff|offOn|toggle` — v3.8.0). The TypeScript
+declarations (`index.d.ts`) are auto-generated from the cluster definitions since v3.6.0.
 
 `CLUSTER.<KEY>` → `{ NAME, ID, ATTRIBUTES, COMMANDS }`. The **ID** column is what goes into
 `zigbee.endpoints.<id>.clusters` / `bindings` in the manifest. All 46 constants, sorted by id:
@@ -941,9 +950,31 @@ module.exports = MyRemote;
 - Registered instances live on `zclNode.endpoints[x].bindings[clusterName]`. An incoming
   client→server frame for a cluster with no binding is answered with an error default response
   (`binding_unavailable`).
-- A `BoundCluster` also answers `readAttributes` from the node by exposing `this[attributeName]`;
-  attributes it does not define are answered with status `FAILURE`. `writeAttributes` only succeeds
-  for properties that have a **setter** (`not_settable` otherwise).
+- A `BoundCluster` also answers `readAttributes` from the node by exposing `this[attributeName]`
+  (a plain property or a getter). Per-attribute status (**zigbee-clusters v3.6.0+**; older versions
+  answered `FAILURE` for all of these):
+  - attribute unknown to the cluster, or `this[name]` is `undefined` → `UNSUPPORTED_ATTRIBUTE`;
+  - `writeAttributes` on a property with a getter but **no setter** → `READ_ONLY`;
+  - a getter/setter may throw `new ZCLError('<STATUS>')` (e.g. `'NOT_AUTHORIZED'`, `'INVALID_VALUE'`)
+    to report its own status for that attribute; any other thrown error still maps to `FAILURE`.
+
+  ```javascript
+  const { BoundCluster, ZCLError } = require('zigbee-clusters');
+
+  class TimeBoundCluster extends BoundCluster {
+    // Devices (thermostats, TRVs) read the Time cluster from the coordinator to set their clock.
+    get time() { return Math.floor(Date.now() / 1000) - 946684800; } // ZCL epoch = 2000-01-01 UTC
+    get timeStatus() { return { master: true, synchronized: true }; }
+    get timeZone() { throw new ZCLError('UNSUPPORTED_ATTRIBUTE'); }
+  }
+  ```
+
+  The `time` cluster only declares its attributes (`time`, `timeStatus`, `timeZone`, `dstStart`,
+  `dstEnd`, `dstShift`, `standardTime`, `localTime`, `lastSetTime`, `validUntilTime`) since
+  **v3.7.0** — on older versions every read of it failed. Register such a bound cluster with
+  `bindings: [10]` on the endpoint and `zclNode.endpoints[1].bind(CLUSTER.TIME.NAME, new TimeBoundCluster())`.
+- `Endpoint` is exported since v3.6.0 so a device that serves bound clusters in tests or simulations
+  does not need to fake a peer object.
 - `discoverCommandsReceived` reports exactly the command names you implemented as methods.
 
 ### 9.2 Custom clusters (manufacturer-specific)

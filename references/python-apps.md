@@ -154,7 +154,7 @@ com.athom.example/
 └─ README.txt
 ```
 
-| Path | Node.js | TypeScript | Python |
+| Path | Node.js | TypeScript (docs: `.mts`; CLI v4.5 scaffolds `.ts`) | Python |
 | --- | --- | --- | --- |
 | App class | `app.js` | `app.mts` | `app.py` |
 | Driver class | `drivers/<id>/driver.js` | `driver.mts` | `drivers/<id>/driver.py` |

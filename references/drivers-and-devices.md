@@ -27,7 +27,7 @@ com.athom.example/
       └─ driver.firmware.compose.json     # → drivers[].firmwareUpdates
 ```
 
-TypeScript apps use `driver.mts` / `device.mts`; Python apps `driver.py` / `device.py` with `homey_export = Driver`.
+TypeScript apps use `driver.ts` / `device.ts` (CLI v4.5 scaffold; the docs also show `.mts`); Python apps `driver.py` / `device.py` with `homey_export = Driver`.
 The `homey` CLI also accepts `driver.mjs` / `driver.cjs` / `device.mjs` / `device.cjs`.
 
 Scaffold a driver interactively (requires Homey Compose; the CLI offers to migrate if the app has none):

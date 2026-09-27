@@ -13,8 +13,8 @@ classes: `references/drivers-and-devices.md`. Flow cards: `references/flow-cards
 | Capability | Type | Units | Range / precision | Getable | Setable | Min. Homey | Role in Energy |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `measure_power` | number | `W` | `decimals: 2` | yes | no | — | Instantaneous power usage/generation in watts. |
-| `meter_power` | number | `kWh` | `decimals: 2` | yes | no | — | Energy in kilowatt-hours. Cumulative unless documented otherwise. |
-| `meter_gas` | number | `m³` | `min: 0`, `decimals: 2` | yes | no | — | Total gas consumed. Read by Homey when `energy.cumulative` is set. |
+| `meter_power` | number | `kWh` | `decimals: 3` (2 before homey-lib v2.52.0) | yes | no | — | Energy in kilowatt-hours. Cumulative unless documented otherwise. |
+| `meter_gas` | number | `m³` | `min: 0`, `decimals: 3` (2 before homey-lib v2.52.0) | yes | no | — | Total gas consumed. Read by Homey when `energy.cumulative` is set. |
 | `meter_water` | number | `m³` | `min: 0`, `decimals: 3` | yes | no | — | Total water consumed. Read by Homey when `energy.cumulative` is set. |
 | `measure_battery` | number | `%` | `min: 0`, `max: 100`, `decimals: 2` | yes | no | — | State of charge. Required on home batteries and EVs. |
 | `alarm_battery` | boolean | — | — | yes | no | — | Low-battery alarm. Alternative to `measure_battery`. |
