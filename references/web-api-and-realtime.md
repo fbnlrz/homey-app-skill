@@ -898,6 +898,11 @@ homey api schema --json --jq '.managers | keys'
 For anything beyond one-off requests, use Athom's official client instead of hand-rolling paths. It
 is the npm package **`homey-api`** (repo `athombv/node-homey-api`; the Homey CLI itself depends on it).
 
+> **Versions (Sep 2026):** stable is **3.20.x** (`npm install homey-api` → `latest`). A **4.0.0-alpha** is on the
+> `alpha` dist-tag (`homey-api@alpha`): rewritten README, bundled `.d.ts` files for every class and a TypeScript build, still
+> Node ≥ 22. Do not use the alpha in apps you publish; pin `homey-api@^3` until 4.0 is released and its breaking
+> changes are documented.
+
 ```bash
 npm install homey-api          # add it to the app's package.json dependencies
 ```

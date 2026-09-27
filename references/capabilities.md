@@ -185,7 +185,8 @@ Capabilities must be added **before** the listener that uses them is registered,
 
 ## Full system capability table (184)
 
-Generated from `athombv/node-homey-lib` v2.51.4 — the package `homey app validate` uses, and the same data behind
+Generated from `athombv/node-homey-lib` v2.51.4, re-checked against v2.52.2 (Sep 2026: only `meter_power` /
+`meter_gas` changed, `decimals` 2 → 3) — the package `homey app validate` uses, and the same data behind
 the [Device Capability Reference](https://apps-sdk-v3.developer.homey.app/tutorial-device-capabilities.html).
 
 Legend: **get**/**set** = `getable`/`setable`. **QA** = `uiQuickAction`, offered as a quick action on the device
@@ -237,9 +238,9 @@ Number capabilities in `%` with `min 0, max 1` take a **fraction**, not 0–100.
 | `alarm_water` | boolean | y | – |  |  | `sensor` |  | y |  | Water Alarm — True when water has been detected |
 | `alarm_battery` | boolean | y | – |  |  | `battery` |  | y |  | Battery Alarm — True when there is a battery warning |
 | `alarm_night` | boolean | y | – |  |  | `sensor` |  | y |  | Night Alarm — True when it is night |
-| `meter_power` | number | y | – | kWh | 2 dec | `sensor` |  | y |  | Energy — Energy usage in kilowatt-hour (kWh) |
+| `meter_power` | number | y | – | kWh | 3 dec | `sensor` |  | y |  | Energy — Energy usage in kilowatt-hour (kWh) |
 | `meter_water` | number | y | – | m³ | min 0, 3 dec | `sensor` |  | y |  | Water meter — Water usage in cubic meter (m³) |
-| `meter_gas` | number | y | – | m³ | min 0, 2 dec | `sensor` |  | y |  | Gas meter — Gas usage in cubic meter (m³) |
+| `meter_gas` | number | y | – | m³ | min 0, 3 dec | `sensor` |  | y |  | Gas meter — Gas usage in cubic meter (m³) |
 | `meter_rain` | number | y | – | m³ | 2 dec | `sensor` |  | y |  | Rain meter — Rain in cubic meter (m³) |
 | `homealarm_state` | enum | y | y |  | `armed` `disarmed` `partially_armed` | `picker` |  |  |  | Home alarm state |
 | `volume_set` | number | y | y | % | min 0, max 1, 2 dec | `slider` |  |  |  | Set volume — Volume |
@@ -481,6 +482,21 @@ Apply to boolean capabilities such as `onoff`, `windowcoverings_closed`, `garage
 | `insightsTitleFalse` | Translation object describing the title when shown in a Timeline (value `false`). |
 | `titleTrue` | Translation object describing the title when shown in a `sensor` UI component. |
 | `titleFalse` | Translation object describing the title when shown in a `sensor` UI component. |
+| `uiState` | **Homey v13.5.0+.** `true`: this capability's value drives the visual on/off state of the device tile. `false`: it never does. Omitted: Homey keeps the old behaviour and uses the boolean quick-action capability. If several boolean capabilities set `uiState: true`, the **first** one in the driver's `capabilities` array wins. It does **not** enable or disable the quick action — that is `uiQuickAction`. |
+
+**`uiState` requires `"compatibility": ">=13.5.0"`.** Since `homey-lib` v2.52.1 (homey CLI v4.4.3+),
+`homey app validate` fails with `drivers.<id>.capabilitiesOptions.<capability>.uiState requires a
+compatibility of at least >=13.5.0` (or `capabilities.<id>.uiState …` for a custom capability) when
+the lower bound of `compatibility` is below that. Typical use: a device whose quick action is
+`onoff` but whose tile should light up on another boolean, e.g. a charger showing `alarm_generic.charging`:
+
+```json
+"capabilities": ["onoff", "alarm_generic.charging"],
+"capabilitiesOptions": {
+  "onoff": { "uiState": false },
+  "alarm_generic.charging": { "uiState": true }
+}
+```
 
 ### Number capability options
 
@@ -751,7 +767,7 @@ Validated by `homey app validate` against the `homey-lib` capability JSON schema
 | `values` | array | enum | **Required for `enum`.** `[{ "id": "option1", "title": { "en": "First option" } }]`. For a `ternary` UI component the three values must have the ids `up`, `idle` and `down`. |
 | `uiComponent` | one of the ten component names, or `null` | all | See below. Omit to let Homey pick automatically. |
 | `uiQuickAction` | boolean | boolean | Let the user quick-toggle the capability's value from the UI. |
-| `uiState` | boolean | all | Present in the schema; not used by any system capability and not covered by the prose documentation. |
+| `uiState` | boolean | boolean | **Homey v13.5.0+** (validator enforces `compatibility >=13.5.0`). Whether this boolean's value sets the device tile's visual state; independent of `uiQuickAction`. Not set by any system capability. See "Boolean capability options". |
 
 The schema allows additional properties, so app-specific keys do not fail validation — but only the keys above (and
 `$id` / `$flow`, handled by Homey Compose) are interpreted.

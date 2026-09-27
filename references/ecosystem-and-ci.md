@@ -26,8 +26,8 @@ All packages are published by Athom B.V. under the `athombv` GitHub organisation
 | `homey-log` | `npm install --save homey-log` | Sends events (including crashes) to [Sentry](http://sentry.io/). Exports `{ Log }`. Repo: `athombv/node-homey-log`. v2.0.0+ is SDK v3 only. | <https://athombv.github.io/node-homey-log/> |
 | `homey-api` | `npm install homey-api` | The Homey Web API client (`HomeyAPI`). Used from inside an app (`createAppAPI`) or from Node/browser (`createLocalAPI`). Repo: `athombv/node-homey-api`. The Homey CLI itself depends on it. | <https://athombv.github.io/node-homey-api/> |
 | `homey-lib` | `npm install homey-lib` | "Shared Library for Homey" — the source of truth for capabilities, device classes, categories, permissions, media codecs, energy data and app/capability/signal validation. Used by the CLI validator and Developer Tools. Repo: `athombv/node-homey-lib`. | <https://github.com/athombv/node-homey-lib> |
-| `eslint-plugin-homey-app` | `npm install --save-dev eslint-plugin-homey-app` | ESLint rules that enforce Homey App best practices (`global-timers`, `homey-log`). Requires ESLint v10 + flat config; use `@1` for legacy config. | see §3 |
-| `homey-apps-sdk-v3-types` | `npm install @types/homey@npm:homey-apps-sdk-v3-types` | TypeScript declarations for the Apps SDK v3, aliased into `@types/homey`. Repo: `athombv/node-homey-apps-sdk-v3-types`. Installed automatically by `homey app add-types`. | <https://github.com/athombv/node-homey-apps-sdk-v3-types> |
+| `eslint-plugin-homey-app` | `npm install --save-dev eslint-plugin-homey-app` | ESLint rules that enforce Homey App best practices (`global-timers`, `homey-log`). v3 (Aug 2026) supports ESLint `>=8.40` with **both** flat config (`configs['flat/recommended']`) and legacy `.eslintrc` (`plugin:homey-app/recommended`). | see §3 |
+| `homey-apps-sdk-v3-types` | `npm install @types/homey@npm:homey-apps-sdk-v3-types` | TypeScript declarations for the Apps SDK v3, aliased into `@types/homey`. Repo: `athombv/node-homey-apps-sdk-v3-types`. Installed automatically by `homey app add-types`. **Jumped from 0.3.12 to 1.6.x in Sep 2026** — see §6. | <https://github.com/athombv/node-homey-apps-sdk-v3-types> |
 
 ### Archived / do not use
 
@@ -127,24 +127,38 @@ ESLint rules that enforce best practices for Homey Apps.
 npm install --save-dev eslint-plugin-homey-app
 ```
 
-### Flat config (ESLint v10)
+### Flat config (`eslint.config.js`)
 
 ```js
 // eslint.config.js
 const homeyApp = require('eslint-plugin-homey-app');
 
 module.exports = [
-  homeyApp.configs.recommended,
+  homeyApp.configs['flat/recommended'],
 ];
 ```
 
-### Legacy config
+### Legacy config (`.eslintrc`)
 
-The plugin requires **ESLint v10 and flat config**. For legacy (`.eslintrc*`) config support, install
-the v1 line:
+```json
+{
+  "extends": ["plugin:homey-app/recommended"]
+}
+```
 
-```bash
-npm install --save-dev eslint-plugin-homey-app@1
+**Version gotcha.** v3.0.0 (Aug 2026) peers on `eslint >=8.40.0` and ships both config styles — so it
+works with the ESLint 8 setup `homey app create` installs. Its **breaking change**: the flat preset
+moved from `configs.recommended` to **`configs['flat/recommended']`**; `configs.recommended` is now the
+legacy eslintrc preset, and putting it in a flat-config array fails (`plugins` is an array there).
+v2 required ESLint v10 + flat config (`configs.recommended`); v1 was the legacy-only line.
+
+Both presets only switch on `homey-app/global-timers` (`warn`). Enable `homey-log` yourself:
+
+```js
+module.exports = [
+  homeyApp.configs['flat/recommended'],
+  { rules: { 'homey-app/homey-log': 'warn' } },
+];
 ```
 
 ### Rules
@@ -193,8 +207,9 @@ module.exports = class MyApp extends Homey.App {
 
 ### The older `eslint-config-athom` path
 
-`homey app create` offers to set up ESLint. When accepted, the CLI installs `eslint@^7.32.0` and
-`eslint-config-athom` (dev dependencies), adds a `lint` script, and writes:
+`homey app create` offers to set up ESLint. When accepted, homey CLI v4.5.x installs
+**`eslint@~8.57.1` and `eslint-config-athom@~4.0.2`** (dev dependencies; CLI ≤ v4.4 installed
+`eslint@^7.32.0` and an unpinned `eslint-config-athom`), adds a `lint` script, and writes:
 
 ```json
 // .eslintrc.json
@@ -212,10 +227,11 @@ module.exports = class MyApp extends Homey.App {
 }
 ```
 
-This is the **legacy** ESLint 7 setup, a style/config preset — it is a different thing from
-`eslint-plugin-homey-app`, which is a rules plugin on ESLint v10 flat config. New apps that are on
-ESLint v10 should use `eslint-plugin-homey-app`; the two can coexist only if the ESLint major version
-matches what each requires.
+This is an eslintrc (legacy config) setup — a style/config preset, a different thing from
+`eslint-plugin-homey-app`, which is a rules plugin. `eslint-config-athom` v4 is locked to **ESLint 8**
+(it does not work on v9+), uses TypeScript 6 for its TypeScript rules and disables
+`no-require-imports` in the `homey-app` preset (v4.0.2). To add the Homey rules to this setup, install
+`eslint-plugin-homey-app@3` and extend `plugin:homey-app/recommended` next to `athom/homey-app`.
 
 ---
 
@@ -400,15 +416,35 @@ homey app add-types
 The CLI has **one** `addTypes` routine but two entry points, and they do different things — do not
 assume the standalone command sets up TypeScript:
 
-| Entry point | Packages installed (all as **dev** dependencies) | Files written |
+| Entry point | Packages installed (all as **dev** dependencies) | Files written (CLI v4.5.1+) |
 | --- | --- | --- |
-| `homey app add-types` (standalone command) | `@types/homey@npm:homey-apps-sdk-v3-types` only | — |
-| `homey app create` answering **TypeScript** | `@types/homey@npm:homey-apps-sdk-v3-types`, `@types/node`, `@tsconfig/node16` | `tsconfig.json` |
-| `homey app create` answering **JavaScript** | `@types/homey@npm:homey-apps-sdk-v3-types` only | — |
+| `homey app add-types` (standalone command) | `@types/homey@npm:homey-apps-sdk-v3-types` only | `tsconfig.json` **without** `extends` (overwrites an existing one) |
+| `homey app create` answering **TypeScript** | `@types/homey@npm:homey-apps-sdk-v3-types`, `@types/node`, `@tsconfig/node16` | `tsconfig.json` with `extends` |
+| `homey app create` answering **JavaScript** | `@types/homey@npm:homey-apps-sdk-v3-types` only | `tsconfig.json` without `extends` |
 
 The standalone command never asks which language you use and never passes the TypeScript flag
-through, so on an existing TypeScript app it installs the types and stops. `tsconfig.json`,
-`@types/node` and `@tsconfig/node16` are your job in that case.
+through, so on an existing TypeScript app it installs the types and **replaces your `tsconfig.json`**
+with the minimal `{ "compilerOptions": { "allowJs": true, "outDir": ".homeybuild/" } }`. Commit or
+back up `tsconfig.json` first and restore `extends`, `sourceMap` etc. afterwards; `@types/node` and
+`@tsconfig/node16` are your job. (CLI ≤ v4.5.0 wrote no file at all for the non-TypeScript paths.)
+
+### Types 1.x (September 2026)
+
+`homey-apps-sdk-v3-types` went from **0.3.12 (May 2025) straight to 1.6.6 / 1.6.7 (Sep 2026)**; the
+declarations are now generated from the SDK sources. A fresh `npm install` / `homey app add-types`
+pulls 1.x, which can surface new type errors in existing TypeScript apps. Notable differences:
+
+* Depends on `@types/node ^22` (was `^14`) and `homey-lib`.
+* **New exports:** `Homey` (the `this.homey` class), `Video`, `VideoDASH`, `VideoHLS`, `VideoOther`,
+  `VideoRTMP`, `VideoRTSP`, `VideoWebRTC` (camera streams — see `references/advanced-features.md`).
+* **Removed export:** `Widget` (`import { Widget } from 'homey'` no longer compiles — use `import type Widget from 'homey/lib/Widget.js'`); the
+  `HomeySettings` / `HomeyWidget` declarations were replaced by `HomeyClient`.
+* New `events.d.ts` with typed event maps, e.g. `this.homey.on('memwarn', ({ count, limit }) => …)`,
+  `'cpuwarn'`, `'unload'`, clock `'timezoneChange'`, cloud webhook `'message'`, discovery `'result'`.
+* Some lifecycle methods Homey awaits are still typed `void`; the CLI's TypeScript template disables
+  `@typescript-eslint/no-misused-promises` for that reason.
+
+Pin `@types/homey@npm:homey-apps-sdk-v3-types@0.3.12` if you need time to migrate.
 
 The `tsconfig.json` written by `homey app create` for a TypeScript app:
 

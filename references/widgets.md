@@ -37,7 +37,7 @@ Interactive wizard: prompts for the widget's **name** and **ID**, then scaffolds
 /widgets/
 └── <widgetId>/                  # the folder name is the widget id
     ├── widget.compose.json      # widget definition
-    ├── api.js                   # widget-scoped API implementation (api.mts for TS, api.py for Python)
+    ├── api.js                   # widget-scoped API implementation (api.ts for TS — CLI v4.5.0+ scaffolds it, api.py for Python)
     ├── public/
     │   └── index.html           # entry point; everything under public/ is hosted on Homey
     ├── preview-light.png        # 1024x1024 preview, light mode
@@ -645,7 +645,10 @@ module.exports = MyApp;
 | `data` | `Any` | **Python only.** Any additional data you want to pass to the widget for this autocomplete value; read back as `Homey.getSettings()['mySettingId'].data`. |
 | *(free-form)* | any | **JavaScript/TypeScript only.** Add extra properties directly on the result object (e.g. `id`); read them back via `Homey.getSettings()['mySettingId']`. |
 
-TypeScript typing: `Widget.SettingAutocompleteResults`, imported as `import Homey, { Widget } from "homey";`.
+TypeScript typing: with `homey-apps-sdk-v3-types` 0.3.x this was `Widget.SettingAutocompleteResults` via
+`import Homey, { Widget } from "homey";`. Types **1.x (Sep 2026) no longer export `Widget` from the root**; use
+`import type Widget from "homey/lib/Widget.js";` (verified with TypeScript 6, `module: nodenext`) and the type `Widget.WidgetSettingAutocompleteResults`
+(an array of `Widget.WidgetSettingAutocompleteResult`).
 
 Chained form (equivalent, using `getSetting`):
 

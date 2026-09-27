@@ -108,8 +108,11 @@ homey app driver create
 Adds a new driver. Prompts for the driver ID, display name, class, capabilities, and pairing method.
 Generates `drivers/<id>/` including `driver.js`, `device.js`, and `driver.compose.json`.
 
-When `tsconfig.json` exists in the app root, the CLI **defaults to TypeScript** for generated drivers
-(`driver.mts` / `device.mts`).
+The file flavour is chosen from `package.json` (homey CLI v4.5.x, `App#getAppExtensions`):
+`typescript` in `devDependencies` → `driver.ts` / `device.ts`; otherwise `"type": "module"` → ESM
+templates written as `driver.js` / `device.js`; otherwise CommonJS `driver.js` / `device.js`.
+`homey app widget create` follows the same rule for the widget's `api` file (`api.ts`, or an ESM
+`api.js`) since CLI v4.5.0 — before that it always wrote a CommonJS `api.js`.
 
 ### 3.3 `homey app driver capabilities`
 
@@ -185,10 +188,14 @@ Interactive wizard that adds a discovery strategy (mDNS-SD, SSDP, or MAC) to
 homey app add-types
 ```
 
-Installs the Homey Apps SDK type declarations and configures `jsconfig.json` / `tsconfig.json` so
-your IDE and the TypeScript compiler can type-check the app. Also used when converting an existing
-JavaScript app to TypeScript (see §13.2). The official guide notes the TypeScript config file must
-already be present in the app root before you run this command.
+Installs the Homey Apps SDK type declarations (`@types/homey@npm:homey-apps-sdk-v3-types`) so your
+IDE can type-check the app. Also used when converting an existing JavaScript app to TypeScript (see
+§13.2).
+
+**Since homey CLI v4.5.1 it always (over)writes `tsconfig.json`** — also in a JavaScript app — with
+`{ "compilerOptions": { "allowJs": true, "outDir": ".homeybuild/" } }` (no `extends`). An existing
+`tsconfig.json` is replaced, so back it up or re-apply your options afterwards. Only
+`homey app create` answering TypeScript adds `@types/node`, `@tsconfig/node16` and the `extends`.
 
 ### 3.10 `homey app add-github-workflows`
 
@@ -273,6 +280,7 @@ pick the one to run on and the app starts uploading and running automatically.
 | `--link-modules`, `-l` | string | `""` | Comma-separated list of local Node.js modules to link into the runner. Docker mode only. |
 | `--network`, `-n` | string | `bridge` | Docker network mode. Must match a name from `docker network ls`. Use `host` if your app needs LAN discovery from the host. Docker mode only. |
 | `--docker-socket-path` | string | — | Path to the Docker socket. |
+| `--docker-exposed-ports` | array | `[]` | **CLI v4.5.0+.** Publish container ports on the host, e.g. `--docker-exposed-ports 6113/tcp 5683/udp` (protocol defaults to `tcp`). Each port binds to the **same** port on all host interfaces — mind your firewall. Docker mode only (Node.js and Python apps). |
 | `--find-links` | string | — | Additional location to search for Python package distributions. |
 
 ```bash
@@ -281,13 +289,15 @@ homey app run --clean
 homey app run --remote
 homey app run --link-modules ../my-library,../another-library
 homey app run --network host
+homey app run --docker-exposed-ports 8080 5683/udp
 ```
 
 **Gotcha — Docker `bridge` networking hides your ports.** In the default Docker mode the app runs in
 a `bridge` network on your workstation, not on the Homey. A TCP/HTTP port your app opens (a local
 server, a webhook receiver, a discovery responder) is **not reachable** from your phone or from other
-LAN devices. Use `--network host` (macOS/Linux) when the app needs host-level LAN access, or use
-`homey app install` to test LAN-facing behaviour under production networking.
+LAN devices. Publish just those ports with `--docker-exposed-ports <port>[/udp]` (CLI v4.5.0+), use
+`--network host` (macOS/Linux) when the app needs full host-level LAN access such as multicast
+discovery, or use `homey app install` to test LAN-facing behaviour under production networking.
 
 **Gotcha — `--clean` really does wipe everything.** All userdata, paired devices and settings for
 that app are deleted. Do not use it on a Homey where you have painstakingly paired real hardware.
@@ -578,6 +588,10 @@ operations. Each manager command inherits `--homey-id`.
 | `homey select current [--json] [--jq "<expr>"]` | Prints the currently selected Homey. Exits with a helpful message when nothing is selected. |
 | `homey unselect` | Clears the currently selected Homey so subsequent commands prompt for one. |
 | `homey tools` | Opens `https://tools.developer.homey.app` in your default browser. |
+| `homey <command> --discovery-strategies <list>` | **CLI v4.5.0+, global option.** Forces how the CLI connects to the selected Homey instead of auto-picking: comma-separated `cloud`, `local`, `localSecure`, `remoteForwarded`, `mdns`. Also disables the USB shortcut. Useful when auto-discovery picks an unreachable address (VPN, Docker, split DNS), e.g. `homey app run --discovery-strategies local`. |
+
+Since CLI v4.5.2 the session file in `~/.homey/` is written with mode `0600`, and since v4.5.0
+`homey app publish` asks you to confirm the App Store guidelines only once per machine.
 | `homey docs` | Opens `https://apps.developer.homey.app` in your default browser. |
 | `homey completion` | Prints the shell completion script (see §8). |
 
@@ -845,6 +859,22 @@ into one app.
 Run `homey app create` and answer **Yes** when the CLI asks to initialize the app with TypeScript
 utilities. All necessary and recommended dependencies and files are created for you.
 
+What homey CLI **v4.5.x** scaffolds for a TypeScript app (changed from v4.4.x):
+
+* `package.json` gets **`"type": "module"`** and `"build": "tsc"` (no `main`), so the app is ESM
+  TypeScript; Compose then writes `"esm": true`. Sources are `app.ts`, `drivers/<id>/driver.ts` /
+  `device.ts`, `widgets/<id>/api.ts`, written with `import Homey from 'homey'` and
+  `export default class … extends Homey.App` (earlier CLIs put `module.exports =` in `.ts` files).
+  The template's `compatibility` is `>=12.4.0`, which satisfies the ESM minimum of `>=12.0.1`.
+* The device template declares lifecycle methods as `public override async onInit()` etc. and
+  starts with `/* eslint-disable @typescript-eslint/no-misused-promises */`, because some SDK typings
+  still declare `void` returns for methods Homey awaits.
+* With ESLint enabled it installs **`typescript@npm:@typescript/typescript6`** (TypeScript 6 under
+  the `typescript` name, for `eslint-config-athom`) **plus `@typescript/native@npm:typescript`**
+  (the latest TypeScript, v7) — `eslint-config-athom` does not support TypeScript 7 yet. Without
+  ESLint it installs plain `typescript`. Keep the `typescript` key in `devDependencies`: it is what
+  the CLI checks to decide the app is TypeScript (see §13.4).
+
 ### 13.2 Converting an existing JavaScript app
 
 Conversion is manual, but can be done **file by file** — TypeScript and JavaScript files coexist.
@@ -874,9 +904,8 @@ TypeScript app. Configure it freely, with two constraints: `outDir` must remain 
 homey app add-types
 ```
 
-**3. Change the app entrypoint.** The guide says to rename `app.js` → `app.ts` (CLI-scaffolded
-TypeScript apps use `app.mts` instead — see §13.3) and add source-map support at the top. You can
-remove `'use strict'`:
+**3. Change the app entrypoint.** Rename `app.js` → `app.ts` (the CLI scaffold uses `.ts` too — see
+§13.3) and add source-map support at the top. You can remove `'use strict'`:
 
 ```typescript
 import sourceMapSupport from 'source-map-support';
@@ -902,18 +931,21 @@ is wired up correctly.
 | ------- | --- | --------------- | ------- | ----- |
 | JavaScript (CJS) | `app.js` | `driver.js`, `device.js` | `api.js` | — |
 | JavaScript (ESM) | `app.mjs` | `driver.mjs`, `device.mjs` | `api.mjs` | — |
-| TypeScript | `app.mts` | `driver.mts`, `device.mts` | `api.mts` | `tsc` with `outDir: .homeybuild/` |
+| TypeScript | `app.ts` (or `app.mts`) | `driver.ts`, `device.ts` | `api.ts` | `npm run build` (`tsc`) with `outDir: .homeybuild/` |
 
-The current documented project layout uses the **`.mts`** extension for TypeScript sources (ESM
-TypeScript). The older conversion guide describes renaming `app.js` → `app.ts`; both compile through
-the same `tsc` step, but new apps scaffolded by the CLI use `.mts`.
+The homey CLI scaffolds **`.ts`** files in a `"type": "module"` package (ESM TypeScript, CLI v4.5.0+).
+The documentation's project-layout page shows `.mts`; both compile through the same `tsc` step and
+end up as `.js` in `.homeybuild/`.
 
 ### 13.4 Gotchas
 
-* **`tsconfig.json` is the TypeScript switch.** When it is present in the app root, `homey app driver
-  create` generates TypeScript drivers. Remove or rename it to get JavaScript drivers back — but
-  removing/renaming it **also stops the TypeScript compiler from being invoked** when
-  running/installing/publishing the app.
+* **`typescript` in `devDependencies` is the TypeScript switch — not `tsconfig.json`.** The docs say
+  the tsconfig file makes Homey treat the app as TypeScript, but the CLI (`App.usesTypeScript`, v4.4
+  and v4.5) only checks `package.json` → `devDependencies.typescript`. When it is set, `run` /
+  `install` / `build` / `publish` print `Typescript detected. Compiling...`, verify via
+  `npx tsc --showConfig` that `outDir` resolves to `./.homeybuild`, and then run **`npm run build`**
+  — so a `build` script is required. `homey app driver create` picks `.ts` templates from the same
+  check. Without `typescript` in `devDependencies` none of this happens, even with a `tsconfig.json`.
 * **`outDir` must stay `.homeybuild/`.** Any other output directory breaks the build; Homey bundles
   from `.homeybuild/`.
 * **Keep `sourceMap: true`** and install `source-map-support` in the entrypoint, otherwise runtime
